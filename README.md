@@ -1,4 +1,5 @@
-# BioC 2016 workshop: Analysis of single-cell RNA-seq data with R and Bioconductor
+# BioC 2016 workshop
+## Analysis of single-cell RNA-seq data with R and Bioconductor
 Davide Risso (@drisso), Michael Cole (@mbcole), and Kelly Street (@kstreet13)
 
 This repository contains the code and data needed for the workshop.
