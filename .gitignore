@@ -1,0 +1,8 @@
+.Rproj.user
+.Rhistory
+.RData
+vignettes/figure
+*.Rproj
+clusterVignette.md
+vignettes/R_cache
+vignettes/R_figure

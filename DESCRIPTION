@@ -1,0 +1,19 @@
+Package: bioc2016singlecell
+Title: Analysis of Single-Cell RNA-Seq Data with R and Bioconductor
+Version: 0.0.1
+Description: Code and data needed for the workshop.
+Authors@R: c(person("Davide", "Risso", email = "risso.davide@gmail.com",
+            role = c("aut", "cre", "cph")),
+	     person("Michael","Cole", role = "aut", email = "mbeloc@gmail.com"),
+	     person("Kelly", "Street", role = "aut", email = "kstreet@berkeley.edu"))
+Author: Davide Risso [aut, cre, cph], Michael Cole [aut], Kelly Street [aut]
+Maintainer: Davide Risso <risso.davide@gmail.com>
+License: Artistic-2.0
+Depends:
+  R (>= 3.3)
+Imports:
+  scone,
+  clusterExperiment,
+  slingshot
+VignetteBuilder: knitr
+LazyData: true
