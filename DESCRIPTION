@@ -10,10 +10,15 @@ Author: Davide Risso [aut, cre, cph], Michael Cole [aut], Kelly Street [aut]
 Maintainer: Davide Risso <risso.davide@gmail.com>
 License: Artistic-2.0
 Depends:
-  R (>= 3.3)
+  R (>= 3.3),
+  devtools
 Imports:
   scone,
   clusterExperiment,
   slingshot
+Remotes:
+  YosefLab/scone,
+  epurdom/clusterExperiment,
+  kstreet13/slingshot
 VignetteBuilder: knitr
 LazyData: true
