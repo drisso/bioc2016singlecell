@@ -13,12 +13,16 @@ Depends:
   R (>= 3.3),
   devtools
 Imports:
-  scone,
   clusterExperiment,
+  scone,
   slingshot
+Suggests:
+  BiocStyle,
+  knitr,
+  rmarkdown
 Remotes:
-  YosefLab/scone,
   epurdom/clusterExperiment,
+  YosefLab/scone,
   kstreet13/slingshot
 VignetteBuilder: knitr
 LazyData: true
