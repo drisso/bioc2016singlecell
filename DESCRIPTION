@@ -15,7 +15,8 @@ Depends:
 Imports:
   clusterExperiment,
   scone,
-  slingshot
+  slingshot,
+  SummarizedExperiment
 Suggests:
   BiocStyle,
   knitr,
