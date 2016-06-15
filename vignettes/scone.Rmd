@@ -1,0 +1,248 @@
+---
+title: "Quality Control (QC) and Normalization"
+author: "Michael Cole"
+date: "`r Sys.Date()`"
+output: 
+  BiocStyle::html_document:
+    toc: true
+vignette: >
+  %\VignetteEncoding{UTF-8}
+---
+
+<!--
+%\VignetteEngine{knitr::rmarkdown}
+%\VignetteIndexEntry{scone Vignette}
+-->
+
+```{r options, results="hide", include=FALSE, cache=FALSE, results='hide', message=FALSE}
+## change cache to FALSE
+knitr::opts_chunk$set(fig.align="center", cache=TRUE, cache.path = "sconeTutorial_cache/", fig.path="sconeTutorial_figure/",error=FALSE, #make it stop on error
+fig.width=6,fig.height=6,autodep=TRUE,out.width="600px",out.height="600px", results="markup", echo=TRUE, eval=TRUE)
+#knitr::opts_knit$set(stop_on_error = 2L) #really make it stop
+#knitr::dep_auto()
+options(getClass.msg=FALSE) #get rid of annoying messages about cache until fixed internally in R
+
+set.seed(6473) ## for reproducibility
+
+filterCount <- function(counts, nRead=5, nCell=5){
+  filter <- apply(counts, 1, function(x) length(x[x>=nRead])>=nCell)
+  return(filter)
+}
+
+## library(bioc2016singlecell) ## add back when ready
+
+## for now load individual dependencies
+library(EDASeq)
+library(scone)
+```
+
+# Introduction
+
+This is the first part of the Bioc2016 workshop "Analysis of single-cell RNA-seq data with R and Bioconductor."
+
+In this part we will cover single-cell RNA-Seq quality control (QC) and normalization with the `r Githubpkg("YosefLab/scone")` package. We plan on submitting the package to Bioconductor in the near future.
+
+Single-cell RNA sequencing (scRNA-Seq) technologies are opening the way for transcriptome-wide profiling across diverse and complex mammalian tissues, facilitating unbiased identification of novel cell sub-populations and their functional roles. As in other high-throughput assays, a fraction of the heterogeneity observed in scRNA-Seq data results from batch effects and other technical artifacts. In particular, these protocols’ reliance on miniscule amounts of starting mRNA can lead to widespread  “drop-out effects,” in which expressed transcripts are missed. Due to the biases inherent to these assays, data normalization is an essential step prior to any downstream analyses. Furthermore, due to wide-range of scRNA-Seq study designs used in the field, we cannot expect to find a one-size-fits-all solution to these problems.
+
+`scone` supports a rational, data-driven framework for assessing the efficacy of various normalization workflows, encouraging users to explore trade-offs inherent to their dataset prior to finalizing a data normalization strategy. We provide an interface for running multiple normalization workflows in parallel. We also offer tools for ranking workflows and visualizing trade-offs. We import some common normalization modules used in traditional bulk sequencing, and provide support for integrating user-specified normalization modules.
+
+## The `scone` workflow
+
+The basic intended clustering workflow is 
+
+* Implement many different clusterings using different choices of parameters using the function `clusterMany`. This results in a large collection of clusterings, where each clustering is based on different parameters. 
+* Find a unifying clustering across these many clusterings using the `combineMany` function. 
+* Determine whether some clusters should be merged together into larger clusters. This involves two steps:
+    - Find a hierarchical clustering of the clusters found by `combineMany` using `makeDendrogram`
+    - Merge together clusters of this hierarchy based on the percentage of differential expression, using `mergeClusters`.
+
+The basic premise of our workflow is to find small, robust clusters of samples, and then merge them into larger clusters as relevant. We find that many algorithmic methods for choosing the appropriate number of clusters for methods  err on the side of too few clusters. However, we find in practice that we tend to prefer to err on finding many clusters and then merging them based on examining the data.
+
+## Additional functionalities of `scone`
+
+The package encodes many common practices that are shared across clustering algorithms, like subsampling the data, computing silhouette width, sequential clustering procedures, and so forth. We describe here the basic expected usage of the package. Additional functionality is available in the `r Githubpkg("epurdom/clusterExperiment")` vignette and manual pages.
+
+## An example dataset
+
+We will start from the normalized data obtained in the first part of the workshop with `r Githubpkg("YosefLab/scone")`. The normalized data can be loaded directly from the workshop package.
+
+```{r datain, eval=TRUE}
+## data(normalized) ...eventually
+
+## for now
+load("~/git/scone_analysis/imageAfterFilteringE4.RData")
+
+#----- ExpressionSet
+oe <- sf.sc.eSet
+
+#----- Order cells by batch wi bio
+bio <- droplevels(oe$MD_expt_condition)
+bio <- sub("K5ERP63CKO_UI", "KO", bio)
+bio <- sub("K5ERRY_UI", "WT", bio)
+oe$MD_expt_condition <- as.factor(bio)
+
+oe <- oe[,order(droplevels(oe$MD_expt_condition),droplevels(oe$MD_c1_run_id))]
+rownames(oe) <- sapply(rownames(oe),tolower)
+counts <- assayData(oe)$counts_table
+
+## Randomly select samples
+sample_filter <- sample(1:NCOL(counts), 100)
+head(sample_filter)
+
+oe <- oe[, sample_filter]
+dim(oe)
+
+## Filter genes
+gene_filter <- filterCount(counts, nRead = 20, nCell = 50)
+
+oe <- oe[which(gene_filter),]
+dim(oe)
+counts <- assayData(oe)$counts_table
+
+## Housekeeping genes
+hk0 <- scan("~/git/scone_analysis/HKlistD1.txt", what="character")
+hk0 <- sapply(hk0,tolower)
+names(hk0) <- NULL
+
+hk <- intersect(hk0,rownames(oe))
+
+#----- QC data, rm cols 6:9 NaN
+qc <- as.matrix(protocolData(oe)@data[,-(6:9)])
+
+## Normalization
+fq <- betweenLaneNormalization(counts, which="full")
+ruv <- RUVg(fq, hk, k=1, round=FALSE)
+counts <- ruv$normalizedCounts
+
+# Summarized Experiment
+se <- SummarizedExperiment(list(counts=counts), colData=DataFrame(qc))
+
+```
+
+# Step 1: Cluster Analysis with `clusterMany`
+
+The first important function in the package is `clusterMany`. It takes as input either a matrix, a list of matrices, or a `SummarizedExperiment` object. In this tutorial we will use the latter.
+
+There are many parameters that can be changed in the functions, for most of them there are two intended uses: one value means that the parameter will be fixed, a range of values means that all the values will be tried to allow comparisons.
+
+```{r clusterMany, eval=FALSE}
+ce <- clusterMany(se, isCount=TRUE, dimReduce=c("PCA", "var"), nPCADims=c(25, 50), 
+                  nVarDims = c(500, 1000), clusterFunction=c("hierarchical01"), 
+                  ks=5:15, alphas=c(0.3), subsample=TRUE, 
+                  subsampleArgs=list(clusterFunction="kmeans", resamp.num=100, samp.p=0.7), 
+                  sequential=TRUE, seqArgs=list(beta=0.9 ,k.min=3, top.can=5, verbose=FALSE),
+                  ncores=3)
+```
+
+```{r clusterMany_load}
+## change with data()
+load("../data/clustermany_res.rda")
+ce
+```
+
+In the call above, we have set the following parameters using a single value.
+
+* `clusterFunction` is set to "hierarchical01" to use hierarchical clustering to cluster the co-clustering matrix of the subsamplings.
+* `alphas` is set to 0.3.
+* `subsample` and `sequential` are set to TRUE to perform subsampling and sequential clustering.
+
+The parameters with a range of values are the following.
+
+* `dimReduce`: use either PCA or most variable genes for clustering.
+* `nPCADims`: use either 10 or 50 PCs for PCA.
+* `nVarDims`: use either top 500 or 1000 most variable genes.
+* `ks`: use between 5 and 15 as the value of `k` in `kmeans`.
+
+As we can see from the output, we generated many different clusterings. One way to visualize them is through the `plotClusters` function. 
+
+```{r plotClusterEx1}
+defaultMar <- par("mar")
+plotCMar <- c(1.1,8.1,4.1,1.1)
+par(mar=plotCMar)
+
+plotClusters(ce, main="Clusters from clusterMany", axisLine=-1)
+```
+
+This plot shows the samples in the columns, and different clusterings on the rows. Each sample is color coded based on its clustering for that row, where the colors have been chosen to try to match up clusters across different clusterings that show large overlap. Moreover, the samples have been ordered so that each subsequent clustering (starting at the top and going down) will try to order the samples to keep the clusters together, without rearranging the clustering blocks of the previous clustering/row.
+
+We can see that some clusters are fairly stable across different choices of dimensions while others can vary dramatically. Notice that some samples are white. This indicates that they have the value -1, meaning they were not clustered. This is from our choices to require at least 5 samples to make a cluster. 
+
+To retrieve the actual results of each clustering, we can use the `clusterMatrix` and `primaryClusters` functions.
+
+```{r clusterMatrix}
+head(clusterMatrix(ce)[,1:3])
+table(primaryCluster(ce))
+```
+
+After a call to `clusterMany` the primary clusters are simply defined as the first parameter combinations (i.e., the first column of `clusterMatrix`). We can change this, if we want, say, to select the third clustering as our preferred choice.
+
+```{r setCluster}
+primaryClusterIndex(ce) <- 3
+ce
+```
+
+# Step 2: Find a consensus with `combineMany`
+
+To find a consensus clustering across the many different clusterings created by `clusterMany` the function `combineMany` can be used next. 
+
+```{r combineMany}
+ce <- combineMany(ce, proportion = 0.6, minSize = 5)
+```
+
+Notice we get a warning that we did not specify any clusters to combine, so it is using the default -- those from the previous call. 
+
+If we look at the `clusterMatrix` of the returned `ce` object, we see that the new cluster from `combineMany` has been added to the existing clusterings. This is the basic strategy of the functions in this package. Any clustering that is created is added to existing clusterings, so the user does not need to keep track of past clusterings and can easily compare what has changed. 
+
+```{r lookAtCombineMany}
+head(clusterMatrix(ce)[,1:3])
+par(mar=plotCMar)
+plotClusters(ce)
+```
+
+The proportion argument regulates how many times two samples need to be in the same cluster across parameters to be together in the combined clustering. Decreasing the value of `proportion` results in fewer "unclustered" (i.e., -1) samples. Another parameter that controls the number of unassigned samples is `minSize`, which discards the combined clusters with less than `minSize` samples.
+
+# Step 3: Merge clusters together with `makeDendrogram` and `mergeClusters`
+
+It is not uncommon that `combineMany` will result in too many small clusters, which in practice are too closely related to be useful. Since our final goal is to find gene markers for each clusters, we argue that we can merge clusters that show no or little differential expression (DE) between them.
+
+This functionality is implemented in the `mergeClusters` function. `mergeClusters` needs a hierarchical clustering of the clusters; it then goes progressively up that hierarchy, deciding whether two adjacent clusters can be merged. The function `makeDendrogram` makes such a hierarchy between clusters (by applying `hclust` to the medoids of the clusters).
+
+Here, we use the 1,000 most variable genes to make the cluster hierarchy.
+
+```{r makeDendrogram}
+ce<-makeDendrogram(ce, dimReduce="var", ndims=1000)
+plotDendrogram(ce)
+```
+
+It is useful to first run `mergeClusters` without actually creating any object so as to preview what the final clustering will be (and perhaps to help in setting the cutoff).
+
+```{r mergeClustersPlot}
+mergeClusters(ce, mergeMethod="adjP", plot="mergeMethod")
+```
+
+```{r mergeClusters}
+ce <- mergeClusters(ce,mergeMethod="adjP",cutoff=0.01)
+par(mar=plotCMar)
+plotClusters(ce)
+plotCoClustering(ce,whichClusters=c("mergeClusters","combineMany"))
+```
+
+Notice that `mergeClusters` combines clusters based on the actual values of the features, while the `coClustering` plot shows how often the samples clustered together.
+
+Finally, we can do a heatmap visualizing this final step of clustering.
+
+```{r plotHeatmap}
+plotHeatmap(ce, clusterSamplesData="dendrogramValue", breaks=.99)
+```
+
+# Step 4: Find marker genes with `getBestFeatures`
+
+## Limma with voom weights
+
+## Account for zero-inflation with MAST
+
+# Session Info
+
+```{r session}
+sessionInfo()
+```
