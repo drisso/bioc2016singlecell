@@ -22,7 +22,7 @@ Suggests:
   knitr,
   rmarkdown
 Remotes:
-  epurdom/clusterExperiment,
+  epurdom/clusterExperiment@develop,
   YosefLab/scone,
   kstreet13/slingshot
 VignetteBuilder: knitr
