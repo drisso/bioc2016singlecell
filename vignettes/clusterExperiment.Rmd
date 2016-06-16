@@ -2,6 +2,7 @@
 title: "Clustering"
 author: "Davide Risso"
 date: "`r Sys.Date()`"
+bibliography: bibFile.bib
 output: 
   BiocStyle::html_document:
     toc: true
@@ -36,6 +37,7 @@ library(SummarizedExperiment)
 library(EDASeq)
 library(RUVSeq)
 library(cluster)
+library(MAST)
 ```
 
 # Introduction
@@ -95,7 +97,7 @@ Each of these steps forces the researcher to make some choices, e.g.,
 These choices are very likely to impact the results.
 
 ```{r pca}
-pca <- prcomp(t(log1p(assay(se))), center=TRUE, scale=TRUE)
+pca <- prcomp(t(log1p(assay(se)[intersect(de, rownames(counts)),])), center=TRUE, scale=TRUE)
 plot(pca$x, pch=19, col=bigPalette[bio])
 legend("topleft", levels(bio), fill=bigPalette)
 
@@ -171,7 +173,77 @@ The package encodes many common practices that are shared across clustering algo
 # RSEC: Resampling-based Sequential Ensemble Clustering
 
 One of the main use of the package is to apply the RSEC algorithm to single-cell RNA-seq data.
-The `RSEC` function is a wrapper around the main functions of the package and implements the following steps:
+
+The idea behind RSEC is to find a large number of small, coherent clusters:
+
+* Subsampling of data to find robust clusters.
+* Sequential clustering to find a group of coherent samples, remove them, start over.
+
+We perform this routine over many parameters and find a single consensus.
+
+## Subsample clustering
+
+Given an underlying clustering strategy, e.g., k-means or PAM with a particular choice of K, we repeat the following:
+
+* Subsample the data, e.g. 70% of samples.
+* Find clusters on the subsample.
+* Create a co-clustering matrix D: % of subsamples where samples were in the same cluster.
+
+We can use the function `clusterSingle` to perform this strategy over a single set of parameters.
+
+```{r subsample}
+cl3 <- clusterSingle(se, subsample = TRUE, sequential = FALSE, 
+                     clusterFunction = c("hierarchical01"), 
+                     clusterDArgs = list(minSize=5, alpha=0.3), 
+                     subsampleArgs = list("k"=3,"clusterFunction"="pam"),
+                     dimReduce = c("PCA"), isCount=TRUE, ndims=10)
+
+## plotCoClustering(cl3)
+
+NMF::aheatmap(1-cl3@coClustering, color=seqPal5, annCol=data.frame(cl=primaryClusterNamed(cl3)), annColors = list(cl=c("white", bigPalette)))
+
+cl7 <- clusterSingle(se, subsample = TRUE, sequential = FALSE, 
+                     clusterFunction = c("hierarchical01"), 
+                     clusterDArgs = list(minSize=5, alpha=0.3),
+                     subsampleArgs = list("k"=7,"clusterFunction"="pam"),
+                     dimReduce = c("PCA"), isCount=TRUE, ndims=10)
+
+## plotCoClustering(cl3)
+
+NMF::aheatmap(1-cl7@coClustering, color=seqPal5, annCol=data.frame(cl=primaryClusterNamed(cl7)), annColors = list(cl=c("white", bigPalette)))
+```
+
+Note that the final clustering is performed on the matrix D. This can be done with any clustering method. We use a flexible approach of hierarchical clustering and picking clusters so have at least 1-alpha similarity. Selecting a value for alpha seems more intuitive than selecting a number of desired clusters k.
+
+## Sequential clustering
+
+Our sequential clustering works as follows.
+
+* Range over K in PAM clustering using the subsampling strategy outlined above.
+* The cluster that remains stable across values of k is identified and removed.
+* Repeat until no more stable clusters are found.
+
+This strategy draws ideas from the "tight clustering" algorithm used to find groups of genes in microarray data in [@tseng2005].
+
+Again, one can use the `clusterSingle` function to perform sequential clustering.
+
+```{r sequential}
+cl <- clusterSingle(se, subsample = TRUE, sequential = TRUE, 
+                     clusterFunction = c("hierarchical01"), 
+                     clusterDArgs = list(minSize=5, alpha=0.3),
+                     subsampleArgs = list("clusterFunction"="pam"),
+                     seqArgs = list(k0=4),
+                     dimReduce = c("PCA"), isCount=TRUE, ndims=10)
+cl
+```
+
+## Finding a consensus
+
+The final ingredient is finding a consensus across parameter values. For instance, we can change the values of k0 in the sequential clustering. We could use the function `clusterMany` to perform many clusterings and then `combineMany` to find the consensus clusters. Instead, the package provides a wrapper to perform these steps, where many of the common parameters have reasonable defaults.
+
+## The `RSEC` function
+
+The `RSEC` function implements the following steps:
 
 1. Cluster analysis with `clusterMany`.
 2. Find a consensus with `combineMany`.
@@ -179,7 +251,7 @@ The `RSEC` function is a wrapper around the main functions of the package and im
 
 ```{r rsec}
 rs <- RSEC(se, isCount=TRUE, nPCADims=c(10, 20), alphas=c(0.2, 0.3),  mergeCutoff=0.01,
-           clusterFunction="hierarchical01", combineProportion=0.5, combineMinSize=3)
+           clusterFunction="hierarchical01", combineProportion=0.5, combineMinSize=3, betas=0.7)
 rs
 ```
 
@@ -193,13 +265,19 @@ plotClusters(rs, main="Clusters from RSEC", axisLine=-1)
 
 This plot shows the samples in the columns, and different clusterings on the rows. Each sample is color coded based on its clustering for that row, where the colors have been chosen to try to match up clusters across different clusterings that show large overlap. Moreover, the samples have been ordered so that each subsequent clustering (starting at the top and going down) will try to order the samples to keep the clusters together, without rearranging the clustering blocks of the previous clustering/row.
 
-We can see that some clusters are fairly stable across different choices of dimensions while others can vary dramatically. Notice that some samples are white. This indicates that they have the value -1, meaning they were not clustered. This is from our choices to require at least 5 samples to make a cluster. 
+We can see that some clusters are fairly stable across different choices of dimensions while others can vary dramatically. Notice that some samples are white. This indicates that they have the value -1, meaning they were not clustered. This is from our choices to require at least 5 samples to make a cluster.
+
+Another good visualization is the `plotCoClustering` function, that shows, how many times samples in each cluster are together across parameters.
+
+```{r plotCoClustering}
+plotCoClustering(rs)
+```
 
 To retrieve the actual results of each clustering, we can use the `clusterMatrix` and `primaryClusters` functions.
 
 ```{r clusterMatrix}
 head(clusterMatrix(rs)[,1:3])
-table(primaryCluster(rs))
+table(primaryClusterNamed(rs))
 ```
 
 ## A few details on `mergeClusters`
@@ -224,15 +302,13 @@ mergeClusters(ce, mergeMethod="adjP", plot="mergeMethod", cutoff=0.01, isCount=T
 ```{r mergeClusters}
 ce <- mergeClusters(ce, mergeMethod="adjP", plot="none", cutoff=0.01, isCount=TRUE)
 par(mar=plotCMar)
-plotClusters(ce)
+plotClusters(ce, whichClusters = 1:3)
 plotCoClustering(ce,whichClusters=c("mergeClusters","combineMany"))
 ```
 
 Notice that `mergeClusters` combines clusters based on the actual values of the features, while the `coClustering` plot shows how often the samples clustered together.
 
-# Find marker genes with `getBestFeatures`
-
-## Limma with voom weights
+# Find marker genes with `getBestFeatures` (using limma)
 
 Once we are satisfied with our clustering, the next step is usually to identify marker genes
 for each of the clusters.
@@ -296,10 +372,46 @@ plotHeatmap(rs, clusterSamplesData="dendrogramValue",
             breaks=.99)
 ```
 
+# Return contrasts for use in external DE analysis
+
 ## Account for zero-inflation with MAST
+
+Recently, several authors have suggested strategies to account for zero-inflation in differential expression analysis of single-cell data. One such strategy is MAST [@finak2015mast].
+
+We can return the contrast matrix from `clusterExperiment` and use it as an input for a MAST DE analysis.
+
+```{r mast}
+contrMat <- clusterContrasts(rs, contrastType="Dendro")$contrastMatrix
+wh_rm <- which(primaryCluster(rs)==-1)
+sca <- FromMatrix("SingleCellAssay", t(transform(rs[,-wh_rm])), cData=data.frame(Clusters=primaryClusterNamed(rs)[-wh_rm]))
+
+fit <- zlm(~0+Clusters, sca)
+cont_levels <- paste("Clustersm", 1:max(primaryCluster(rs)), sep="")
+mast_res <- lapply(1:ncol(contrMat), function(i) {
+  cont <- gsub("X", "Clustersm", colnames(contrMat))[i]
+  hp <- Hypothesis(cont, cont_levels)
+  coefs <- fit@coefC
+  coefs[is.na(coefs)] <- 0
+  logfc <- coefs %*% hp@contrastMatrix[,1]
+  logfc <- logfc / log(2)
+  wald <- waldTest(fit, hp)
+  retval <- data.frame(Feature=rownames(wald), ContrastName=paste("Node", i, sep=""), Contrast=colnames(contrMat)[i], logFC=logfc[rownames(wald),], P.Value=wald[,1,3], stringsAsFactors = FALSE)
+  retval <- retval[order(retval$P.Value),]
+  return(retval[1:50,])
+})
+
+mast_res <- do.call(rbind, mast_res)
+
+plotHeatmap(rs, clusterSamplesData="dendrogramValue",
+            clusterFeaturesData=unique(mast_res$Feature),
+            main="MAST DE genes (based on Dendrogram hierarchy)",
+            breaks=.99)
+```
 
 # Session Info
 
 ```{r session}
 sessionInfo()
 ```
+
+# References
