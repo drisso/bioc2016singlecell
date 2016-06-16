@@ -15,6 +15,7 @@ vignette: >
 -->
 
 ```{r options, results="hide", include=FALSE, cache=FALSE, results='hide', message=FALSE}
+
 ## change cache to FALSE
 knitr::opts_chunk$set(fig.align="center", cache=TRUE, cache.path = "sconeTutorial_cache/", fig.path="sconeTutorial_figure/",error=FALSE, #make it stop on error
 fig.width=6,fig.height=6,autodep=TRUE,out.width="600px",out.height="600px", results="markup", echo=TRUE, eval=TRUE)
@@ -34,6 +35,7 @@ filterCount <- function(counts, nRead=5, nCell=5){
 ## for now load individual dependencies
 library(EDASeq)
 library(scone)
+
 ```
 
 # Introduction
@@ -54,7 +56,7 @@ The basic qc and normalization workflow is
 * Run and score many different normalization workflows (different combinations of normalization functions) using the main `scone` function.
 * Browse top-ranked methods and visualize trade-offs with the `biplot_colored` function.
 
-Each normalization workflow is comprised of 3 steps:
+Each normalization workflow is composed of 3 steps:
 
 * Data imputation: replacing zero-abundance values with expected values under a drop-out model. NOT INCLUDED IN THIS WORKSHOP.
 * Scaling or quantile normalization: i) normalization that scales each sample's transcriptome abundances by a single factor or ii) more complex offsets that match quantiles across samples. Examples: TMM or DESeq scaling factors, upper quartile normalization, or full-quantile normalization.
@@ -67,135 +69,111 @@ We will start from raw matrix objects obtained from a standard transcriptome ali
 ```{r datain, eval=TRUE}
 
 ## Load Example Data
-load("~/github/bioc2016singlecell/data/input.rda")
+load("../data/input.rda")
 
 ## Joint distribution of batches and biological conditions (time after induction)
 table(batch,bio)
+
 ```
 
 Notice that each time-point is composed of multiple technical batches. This feature is common among scRNA-Seq studies due to limitations on the number of cells that can be harvested and sequenced concurrently.
 
 We will utilize functions from the `EDASeq` Bioconductor package to visualize the quality of the raw data.
 
-```{r datain, eval=TRUE}
+```{r eda, eval=TRUE}
+
 ## EDA HERE
+
 ```
 
 # Step 1: Sample filtering with `metric_sample_filter`
 
-The first important function in the package is `clusterMany`. It takes as input either a matrix, a list of matrices, or a `SummarizedExperiment` object. In this tutorial we will use the latter.
+The most basic sample filtering function in `scone` is the `metric_sample_filter`. It takes as input an expression matrix, the number of reads per cell library, and the ratio of reads aligned to the genome. The ouput is a list of logical arrays designating each sample as having failed (TRUE) or passed (FALSE) a threshold-based filter on the two metrics above, as well as the "transcriptome breadth" and area under an estimated False-Negative Rate curve.
 
-There are many parameters that can be changed in the functions, for most of them there are two intended uses: one value means that the parameter will be fixed, a range of values means that all the values will be tried to allow comparisons.
+Before we proceed, we should perform preliminary gene filtering.
 
-```{r clusterMany, eval=FALSE}
-ce <- clusterMany(se, isCount=TRUE, dimReduce=c("PCA", "var"), nPCADims=c(25, 50), 
-                  nVarDims = c(500, 1000), clusterFunction=c("hierarchical01"), 
-                  ks=5:15, alphas=c(0.3), subsample=TRUE, 
-                  subsampleArgs=list(clusterFunction="kmeans", resamp.num=100, samp.p=0.7), 
-                  sequential=TRUE, seqArgs=list(beta=0.9 ,k.min=3, top.can=5, verbose=FALSE),
-                  ncores=3)
+```{r filterCount, eval=TRUE}
+
+pre_genefilter <- filterCount(counts)
+
 ```
 
-```{r clusterMany_load}
-## change with data()
-load("../data/clustermany_res.rda")
-ce
+
+```{r metric_sample_filter, eval=TRUE}
+
+mfilt_report <- metric_sample_filter(expr = counts,
+                                     nreads = qc$NREADS,ralign = qc$RALIGN,
+                                     suff_ralign = 90,
+                                     gene_filter = pre_genefilter,pos_controls = hk,
+                                     zcut = 1.5,mixture = FALSE, plot = TRUE)
+m_sampfilter = !apply(simplify2array(mfilt_report),1,any)
+
 ```
 
 In the call above, we have set the following parameters using a single value.
 
-* `clusterFunction` is set to "hierarchical01" to use hierarchical clustering to cluster the co-clustering matrix of the subsamplings.
-* `alphas` is set to 0.3.
-* `subsample` and `sequential` are set to TRUE to perform subsampling and sequential clustering.
+* TBA
 
-The parameters with a range of values are the following.
+As we can see from the output...
 
-* `dimReduce`: use either PCA or most variable genes for clustering.
-* `nPCADims`: use either 10 or 50 PCs for PCA.
-* `nVarDims`: use either top 500 or 1000 most variable genes.
-* `ks`: use between 5 and 15 as the value of `k` in `kmeans`.
+```{r filterCount2}
 
-As we can see from the output, we generated many different clusterings. One way to visualize them is through the `plotClusters` function. 
+# Filter Samples
+fcounts = counts[,m_sampfilter]
+fqc = qc[m_sampfilter,]
 
-```{r plotClusterEx1}
-defaultMar <- par("mar")
-plotCMar <- c(1.1,8.1,4.1,1.1)
-par(mar=plotCMar)
+fbatch = batch[m_sampfilter]
+fbio = bio[m_sampfilter]
 
-plotClusters(ce, main="Clusters from clusterMany", axisLine=-1)
-```
+# Re-filter genes
+genefilter <- filterCount(fcounts)
 
-This plot shows the samples in the columns, and different clusterings on the rows. Each sample is color coded based on its clustering for that row, where the colors have been chosen to try to match up clusters across different clusterings that show large overlap. Moreover, the samples have been ordered so that each subsequent clustering (starting at the top and going down) will try to order the samples to keep the clusters together, without rearranging the clustering blocks of the previous clustering/row.
+fcounts = fcounts[genefilter,]
 
-We can see that some clusters are fairly stable across different choices of dimensions while others can vary dramatically. Notice that some samples are white. This indicates that they have the value -1, meaning they were not clustered. This is from our choices to require at least 5 samples to make a cluster. 
+fhk = hk[hk %in% rownames(fcounts)]
+fde = de[de %in% rownames(fcounts)]
 
-To retrieve the actual results of each clustering, we can use the `clusterMatrix` and `primaryClusters` functions.
-
-```{r clusterMatrix}
-head(clusterMatrix(ce)[,1:3])
-table(primaryCluster(ce))
-```
-
-After a call to `clusterMany` the primary clusters are simply defined as the first parameter combinations (i.e., the first column of `clusterMatrix`). We can change this, if we want, say, to select the third clustering as our preferred choice.
-
-```{r setCluster}
-primaryClusterIndex(ce) <- 3
-ce
 ```
 
 # Step 2: Run and score multiple normalization workflows using `scone`
 
-To find a consensus clustering across the many different clusterings created by `clusterMany` the function `combineMany` can be used next. 
 
-```{r combineMany}
-ce <- combineMany(ce, proportion = 0.6, minSize = 5)
+```{r scone_params}
+
+params <- scone(expr = as.matrix(fcounts),scaling = c(deseq = DESEQ_FN, tmm = TMM_FN, uqp = UQ_FN_POS, fq = FQT_FN),
+                ruv_negcon = fhk, k_ruv = 3,
+                qc = as.matrix(fqc), k_qc = 3,
+                bio = fbio,adjust_bio = "yes",
+                batch = fbatch,adjust_batch = "yes",
+                run = FALSE)
+head(params)
+
+is_screened = (params$adjust_biology == "bio") & (params$adjust_batch != "batch")
+
+params = params[!is_screened,]
+
 ```
 
-Notice we get a warning that we did not specify any clusters to combine, so it is using the default -- those from the previous call. 
+```{r scone_run}
+res <- scone(expr = as.matrix(fcounts),scaling = c(deseq = DESEQ_FN, tmm = TMM_FN, uqp = UQ_FN_POS, fq = FQT_FN),
+             ruv_negcon = fhk, k_ruv = 3,
+             qc = as.matrix(fqc), k_qc = 3,
+             bio = fbio,adjust_bio = "yes",
+             batch = fbatch,adjust_batch = "yes",
+             run = TRUE,params = params,
+             eval_poscon = fde, eval_kclust = 2:3, conditional_pam = TRUE)
 
-If we look at the `clusterMatrix` of the returned `ce` object, we see that the new cluster from `combineMany` has been added to the existing clusterings. This is the basic strategy of the functions in this package. Any clustering that is created is added to existing clusterings, so the user does not need to keep track of past clusterings and can easily compare what has changed. 
-
-```{r lookAtCombineMany}
-head(clusterMatrix(ce)[,1:3])
-par(mar=plotCMar)
-plotClusters(ce)
+head(res$scores)
 ```
-
-The proportion argument regulates how many times two samples need to be in the same cluster across parameters to be together in the combined clustering. Decreasing the value of `proportion` results in fewer "unclustered" (i.e., -1) samples. Another parameter that controls the number of unassigned samples is `minSize`, which discards the combined clusters with less than `minSize` samples.
 
 # Step 3: Selecting a normalization for downstream analysis
 
-It is not uncommon that `combineMany` will result in too many small clusters, which in practice are too closely related to be useful. Since our final goal is to find gene markers for each clusters, we argue that we can merge clusters that show no or little differential expression (DE) between them.
+```{r biplot_colored}
 
-This functionality is implemented in the `mergeClusters` function. `mergeClusters` needs a hierarchical clustering of the clusters; it then goes progressively up that hierarchy, deciding whether two adjacent clusters can be merged. The function `makeDendrogram` makes such a hierarchy between clusters (by applying `hclust` to the medoids of the clusters).
-
-Here, we use the 1,000 most variable genes to make the cluster hierarchy.
-
-```{r makeDendrogram}
-ce<-makeDendrogram(ce, dimReduce="var", ndims=1000)
-plotDendrogram(ce)
+pc_obj = prcomp(res$scores[,-ncol(res$scores)],center = TRUE,scale = FALSE)
+biplot_colored(pc_obj,y = res$scores[,ncol(res$scores)],expand = .6)
 ```
 
-It is useful to first run `mergeClusters` without actually creating any object so as to preview what the final clustering will be (and perhaps to help in setting the cutoff).
-
-```{r mergeClustersPlot}
-mergeClusters(ce, mergeMethod="adjP", plot="mergeMethod")
-```
-
-```{r mergeClusters}
-ce <- mergeClusters(ce,mergeMethod="adjP",cutoff=0.01)
-par(mar=plotCMar)
-plotClusters(ce)
-plotCoClustering(ce,whichClusters=c("mergeClusters","combineMany"))
-```
-
-Notice that `mergeClusters` combines clusters based on the actual values of the features, while the `coClustering` plot shows how often the samples clustered together.
-
-Finally, we can do a heatmap visualizing this final step of clustering.
-
-```{r plotHeatmap}
-plotHeatmap(ce, clusterSamplesData="dendrogramValue", breaks=.99)
-```
 
 # Session Info
 
