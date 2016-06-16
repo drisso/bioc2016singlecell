@@ -48,78 +48,40 @@ Single-cell RNA sequencing (scRNA-Seq) technologies are opening the way for tran
 
 ## The `scone` workflow
 
-The basic intended clustering workflow is 
+The basic qc and normalization workflow is 
 
-* Implement many different clusterings using different choices of parameters using the function `clusterMany`. This results in a large collection of clusterings, where each clustering is based on different parameters. 
-* Find a unifying clustering across these many clusterings using the `combineMany` function. 
-* Determine whether some clusters should be merged together into larger clusters. This involves two steps:
-    - Find a hierarchical clustering of the clusters found by `combineMany` using `makeDendrogram`
-    - Merge together clusters of this hierarchy based on the percentage of differential expression, using `mergeClusters`.
+* Filter samples using the `metric_sample_filter` function.
+* Run and score many different normalization workflows (different combinations of normalization functions) using the main `scone` function.
+* Browse top-ranked methods and visualize trade-offs with the `biplot_colored` function.
 
-The basic premise of our workflow is to find small, robust clusters of samples, and then merge them into larger clusters as relevant. We find that many algorithmic methods for choosing the appropriate number of clusters for methods  err on the side of too few clusters. However, we find in practice that we tend to prefer to err on finding many clusters and then merging them based on examining the data.
+Each normalization workflow is comprised of 3 steps:
 
-## Additional functionalities of `scone`
+* Data imputation: replacing zero-abundance values with expected values under a drop-out model. NOT INCLUDED IN THIS WORKSHOP.
+* Scaling or quantile normalization: i) normalization that scales each sample's transcriptome abundances by a single factor or ii) more complex offsets that match quantiles across samples. Examples: TMM or DESeq scaling factors, upper quartile normalization, or full-quantile normalization.
+* Regression-based approaches for removing unwanted correlated variation from the data. Examples: RUVg or regression on Principal Components of library alignment metrics.
 
-The package encodes many common practices that are shared across clustering algorithms, like subsampling the data, computing silhouette width, sequential clustering procedures, and so forth. We describe here the basic expected usage of the package. Additional functionality is available in the `r Githubpkg("epurdom/clusterExperiment")` vignette and manual pages.
+## Prelimary Analysis of Example Data
 
-## An example dataset
-
-We will start from the normalized data obtained in the first part of the workshop with `r Githubpkg("YosefLab/scone")`. The normalized data can be loaded directly from the workshop package.
+We will start from raw matrix objects obtained from a standard transcriptome alignment pipeline. Raw data and important reference data can be loaded directly from the workshop package. 
 
 ```{r datain, eval=TRUE}
-## data(normalized) ...eventually
 
-## for now
-load("~/git/scone_analysis/imageAfterFilteringE4.RData")
+## Load Example Data
+load("~/github/bioc2016singlecell/data/input.rda")
 
-#----- ExpressionSet
-oe <- sf.sc.eSet
-
-#----- Order cells by batch wi bio
-bio <- droplevels(oe$MD_expt_condition)
-bio <- sub("K5ERP63CKO_UI", "KO", bio)
-bio <- sub("K5ERRY_UI", "WT", bio)
-oe$MD_expt_condition <- as.factor(bio)
-
-oe <- oe[,order(droplevels(oe$MD_expt_condition),droplevels(oe$MD_c1_run_id))]
-rownames(oe) <- sapply(rownames(oe),tolower)
-counts <- assayData(oe)$counts_table
-
-## Randomly select samples
-sample_filter <- sample(1:NCOL(counts), 100)
-head(sample_filter)
-
-oe <- oe[, sample_filter]
-dim(oe)
-
-## Filter genes
-gene_filter <- filterCount(counts, nRead = 20, nCell = 50)
-
-oe <- oe[which(gene_filter),]
-dim(oe)
-counts <- assayData(oe)$counts_table
-
-## Housekeeping genes
-hk0 <- scan("~/git/scone_analysis/HKlistD1.txt", what="character")
-hk0 <- sapply(hk0,tolower)
-names(hk0) <- NULL
-
-hk <- intersect(hk0,rownames(oe))
-
-#----- QC data, rm cols 6:9 NaN
-qc <- as.matrix(protocolData(oe)@data[,-(6:9)])
-
-## Normalization
-fq <- betweenLaneNormalization(counts, which="full")
-ruv <- RUVg(fq, hk, k=1, round=FALSE)
-counts <- ruv$normalizedCounts
-
-# Summarized Experiment
-se <- SummarizedExperiment(list(counts=counts), colData=DataFrame(qc))
-
+## Joint distribution of batches and biological conditions (time after induction)
+table(batch,bio)
 ```
 
-# Step 1: Cluster Analysis with `clusterMany`
+Notice that each time-point is composed of multiple technical batches. This feature is common among scRNA-Seq studies due to limitations on the number of cells that can be harvested and sequenced concurrently.
+
+We will utilize functions from the `EDASeq` Bioconductor package to visualize the quality of the raw data.
+
+```{r datain, eval=TRUE}
+## EDA HERE
+```
+
+# Step 1: Sample filtering with `metric_sample_filter`
 
 The first important function in the package is `clusterMany`. It takes as input either a matrix, a list of matrices, or a `SummarizedExperiment` object. In this tutorial we will use the latter.
 
@@ -181,7 +143,7 @@ primaryClusterIndex(ce) <- 3
 ce
 ```
 
-# Step 2: Find a consensus with `combineMany`
+# Step 2: Run and score multiple normalization workflows using `scone`
 
 To find a consensus clustering across the many different clusterings created by `clusterMany` the function `combineMany` can be used next. 
 
@@ -201,7 +163,7 @@ plotClusters(ce)
 
 The proportion argument regulates how many times two samples need to be in the same cluster across parameters to be together in the combined clustering. Decreasing the value of `proportion` results in fewer "unclustered" (i.e., -1) samples. Another parameter that controls the number of unassigned samples is `minSize`, which discards the combined clusters with less than `minSize` samples.
 
-# Step 3: Merge clusters together with `makeDendrogram` and `mergeClusters`
+# Step 3: Selecting a normalization for downstream analysis
 
 It is not uncommon that `combineMany` will result in too many small clusters, which in practice are too closely related to be useful. Since our final goal is to find gene markers for each clusters, we argue that we can merge clusters that show no or little differential expression (DE) between them.
 
@@ -234,12 +196,6 @@ Finally, we can do a heatmap visualizing this final step of clustering.
 ```{r plotHeatmap}
 plotHeatmap(ce, clusterSamplesData="dendrogramValue", breaks=.99)
 ```
-
-# Step 4: Find marker genes with `getBestFeatures`
-
-## Limma with voom weights
-
-## Account for zero-inflation with MAST
 
 # Session Info
 
