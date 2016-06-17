@@ -17,7 +17,7 @@ vignette: >
 
 ```{r options, results="hide", include=FALSE, cache=FALSE, results='hide', message=FALSE}
 knitr::opts_chunk$set(fig.align="center", cache=FALSE,error=FALSE, #make it stop on error
-fig.width=6, fig.height=6, autodep=TRUE, out.width="600px", out.height="600px", results="markup", echo=TRUE, eval=TRUE)
+fig.width=7, fig.height=7, autodep=TRUE, out.width="600px", out.height="600px", results="markup", echo=TRUE, eval=TRUE)
 #knitr::opts_knit$set(stop_on_error = 2L) #really make it stop
 #knitr::dep_auto()
 options(getClass.msg=FALSE) #get rid of annoying messages about cache until fixed internally in R
@@ -238,18 +238,18 @@ rs
 There are many arguments to the RSEC function.
 
 Argument       |  Passed to    | Meaning
----------------|:-------------:|------:|
-nPCADims       |  transform    | nPCADims
-alphas         |  clusterD     | alpha
-clusterFunction |  clusterD    | clusterFunction    
-k0s            |  seqCluster   |  k0 
-betas          |  seqCluster   | beta
-combineProportion |  combineMany | 
-combineMinSize |  combineMany  |
-dendroReduce   |  makeDendrogram |
-dendroNDims    |  makeDendrogram |
-mergeMethod    |  mergeClusters |
-mergeCutoff    |  mergeClusters |
+---------------|:-------------:|-------------------------------------------------------------------:|
+nPCADims       |  transform    | Number of PC's to be used for the clustering
+clusterFunction |  clusterD    | Function to use in the clustering of the co-clustering matrix    
+alphas         |  clusterD     | Similarity required between the clusters in the co-clustering matrix
+k0s            |  seqCluster   | Initial k values for the sequential strategy
+betas          |  seqCluster   | Stability required across paramters to determine that a cluster is stable
+combineProportion |  combineMany | Minimum proportion of times two samples should be together to be assigned to a cluster.
+combineMinSize |  combineMany  | Clusters with size smaller than this will be ignored (resulting in a -1 label)
+dendroReduce   |  makeDendrogram | How to reduce the dimension of the data when computing the dendrogram
+dendroNDims    |  makeDendrogram | How many dimensions to use when computing the dendrogram
+mergeMethod    |  mergeClusters | Method used to merge clusters
+mergeCutoff    |  mergeClusters | Cutoff to merge clusters
 
 The `plotClusters` function is a good way to get a sense of how many clusterings we tried and to visualize the consensus across parameters.
 
@@ -373,7 +373,7 @@ plotHeatmap(rs, clusterSamplesData="dendrogramValue",
 
 # Return contrasts for use in external DE analysis
 
-## Account for zero-inflation with MAST
+## Example: Account for zero-inflation with MAST
 
 Recently, several authors have suggested strategies to account for zero-inflation in differential expression analysis of single-cell data. One such strategy is MAST [@finak2015mast].
 
@@ -407,10 +407,9 @@ mast_res <- lapply(1:ncol(contrMat), function(i) {
 
 mast_res <- do.call(rbind, mast_res)
 
-plotHeatmap(rs, clusterSamplesData="dendrogramValue",
-            clusterFeaturesData=unique(mast_res$Feature),
+plotHeatmap(norm[unique(mast_res$Feature),], clusterSamplesData=rs@dendro_samples,
             main="MAST DE genes (based on Dendrogram hierarchy)",
-            breaks=.99)
+            breaks=.99, sampleData=data.frame(clusters=primaryClusterNamed(rs)))
 ```
 
 ```{r save}
