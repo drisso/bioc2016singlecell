@@ -70,12 +70,15 @@ hk <- intersect(hk, rownames(counts))
 
 ## Normalization
 fq <- betweenLaneNormalization(counts, which="full")
-ruv <- RUVg(fq, hk, k=1, round=FALSE)
+ruv <- RUVg(log1p(fq), hk, k=1, round=FALSE, isLog = TRUE)
 counts <- ruv$normalizedCounts
-counts[counts<0] <- 0
+#counts[counts<0] <- 0
 
 # Summarized Experiment
-se <- SummarizedExperiment(list(counts=counts))
+se <- SummarizedExperiment(list(counts=counts),
+                           colData=data.frame(batch=batch[1:91],
+                                              time_points=bio[1:91]))
+
 
 ```
 
@@ -97,7 +100,7 @@ Each of these steps forces the researcher to make some choices, e.g.,
 These choices are very likely to impact the results.
 
 ```{r pca}
-pca <- prcomp(t(log1p(assay(se)[intersect(de, rownames(counts)),])), center=TRUE, scale=TRUE)
+pca <- prcomp(t(assay(se)[intersect(de, rownames(counts)),]), center=TRUE, scale=TRUE)
 plot(pca$x, pch=19, col=bigPalette[bio])
 legend("topleft", levels(bio), fill=bigPalette)
 
@@ -121,7 +124,7 @@ The main idea behind `clusterExperiment` (`r Githubpkg("epurdom/clusterExperimen
 To repeat this simple example within the `clusterExperiment` framework, we can use the function `clusterMany`.
 
 ```{r pca_cm}
-cm <- clusterMany(se, isCount=TRUE, dimReduce="PCA",  nPCADims=c(2, 3, 6), 
+cm <- clusterMany(se, isCount=FALSE, dimReduce="PCA",  nPCADims=c(2, 3, 6), 
                   ks = 3, clusterFunction = "pam")
 cm
 apply(clusterMatrix(cm), 2, table)
@@ -196,21 +199,17 @@ cl3 <- clusterSingle(se, subsample = TRUE, sequential = FALSE,
                      clusterFunction = c("hierarchical01"), 
                      clusterDArgs = list(minSize=5, alpha=0.3), 
                      subsampleArgs = list("k"=3,"clusterFunction"="pam"),
-                     dimReduce = c("PCA"), isCount=TRUE, ndims=10)
+                     dimReduce = c("PCA"), isCount=FALSE, ndims=10)
 
-## plotCoClustering(cl3)
-
-NMF::aheatmap(1-cl3@coClustering, color=seqPal5, annCol=data.frame(cl=primaryClusterNamed(cl3)), annColors = list(cl=c("white", bigPalette)))
+plotCoClustering(cl3)
 
 cl7 <- clusterSingle(se, subsample = TRUE, sequential = FALSE, 
                      clusterFunction = c("hierarchical01"), 
                      clusterDArgs = list(minSize=5, alpha=0.3),
                      subsampleArgs = list("k"=7,"clusterFunction"="pam"),
-                     dimReduce = c("PCA"), isCount=TRUE, ndims=10)
+                     dimReduce = c("PCA"), isCount=FALSE, ndims=10)
 
-## plotCoClustering(cl3)
-
-NMF::aheatmap(1-cl7@coClustering, color=seqPal5, annCol=data.frame(cl=primaryClusterNamed(cl7)), annColors = list(cl=c("white", bigPalette)))
+plotCoClustering(cl7)
 ```
 
 Note that the final clustering is performed on the matrix D. This can be done with any clustering method. We use a flexible approach of hierarchical clustering and picking clusters so have at least 1-alpha similarity. Selecting a value for alpha seems more intuitive than selecting a number of desired clusters k.
@@ -232,8 +231,8 @@ cl <- clusterSingle(se, subsample = TRUE, sequential = TRUE,
                      clusterFunction = c("hierarchical01"), 
                      clusterDArgs = list(minSize=5, alpha=0.3),
                      subsampleArgs = list("clusterFunction"="pam"),
-                     seqArgs = list(k0=4),
-                     dimReduce = c("PCA"), isCount=TRUE, ndims=10)
+                     seqArgs = list(k0=4, remain.n=10),
+                     dimReduce = c("PCA"), isCount=FALSE, ndims=10)
 cl
 ```
 
@@ -250,22 +249,27 @@ The `RSEC` function implements the following steps:
 3. Merge clusters together with `makeDendrogram` and `mergeClusters`.
 
 ```{r rsec}
-rs <- RSEC(se, isCount=TRUE, nPCADims=c(10, 20), alphas=c(0.2, 0.3),  mergeCutoff=0.01,
-           clusterFunction="hierarchical01", combineProportion=0.5, combineMinSize=3, betas=0.7)
+rs <- RSEC(se, isCount=FALSE, nPCADims=c(10, 20), alphas=c(0.2, 0.3),
+           mergeCutoff=0.01, clusterFunction="hierarchical01",
+           combineProportion=0.5, combineMinSize=3, betas=0.7,
+           seqArgs = list(remain.n=10, top.can=5))
 rs
 ```
 
-The `plotClusters` function is a good way to get a sense of how many clusterings we tried
-and to visualize the consensus across parameters.
+The `plotClusters` function is a good way to get a sense of how many clusterings we tried and to visualize the consensus across parameters.
 
 ```{r plotClusterEx1}
 par(mar=plotCMar)
-plotClusters(rs, main="Clusters from RSEC", axisLine=-1)
+plotClusters(rs, main="Clusters from RSEC", axisLine=-1,
+             sampleData=c("time_points", "batch"))
+
+# newrs <- plotClusters(rs, whichClusters = clusterLabels(rs)[-1], main="Clusters from RSEC", axisLine=-1, matchToTop=TRUE, resetColors=TRUE)
+# plotClusters(newrs, existingColors="all")
 ```
 
 This plot shows the samples in the columns, and different clusterings on the rows. Each sample is color coded based on its clustering for that row, where the colors have been chosen to try to match up clusters across different clusterings that show large overlap. Moreover, the samples have been ordered so that each subsequent clustering (starting at the top and going down) will try to order the samples to keep the clusters together, without rearranging the clustering blocks of the previous clustering/row.
 
-We can see that some clusters are fairly stable across different choices of dimensions while others can vary dramatically. Notice that some samples are white. This indicates that they have the value -1, meaning they were not clustered. This is from our choices to require at least 5 samples to make a cluster.
+We can see that some clusters are fairly stable across different choices of dimensions while others can vary dramatically. Notice that some samples are white. This indicates that they have the value -1, meaning they were not clustered.
 
 Another good visualization is the `plotCoClustering` function, that shows, how many times samples in each cluster are together across parameters.
 
@@ -296,11 +300,11 @@ plotDendrogram(ce)
 It is useful to first run `mergeClusters` without actually creating any object so as to preview what the final clustering will be (and perhaps to help in setting the cutoff).
 
 ```{r mergeClustersPlot}
-mergeClusters(ce, mergeMethod="adjP", plot="mergeMethod", cutoff=0.01, isCount=TRUE)
+mergeClusters(ce, mergeMethod="adjP", plot="adjP", cutoff=0.01, isCount=FALSE)
 ```
 
 ```{r mergeClusters}
-ce <- mergeClusters(ce, mergeMethod="adjP", plot="none", cutoff=0.01, isCount=TRUE)
+ce <- mergeClusters(ce, mergeMethod="adjP", plot="none", cutoff=0.01, isCount=FALSE)
 par(mar=plotCMar)
 plotClusters(ce, whichClusters = 1:3)
 plotCoClustering(ce,whichClusters=c("mergeClusters","combineMany"))
@@ -327,7 +331,7 @@ rs <- makeDendrogram(rs, dimReduce="mad", ndims=1000)
 ```
 
 ```{r getBestFeatures}
-genesF <- getBestFeatures(rs, contrastType="F", number=500, isCount=TRUE)
+genesF <- getBestFeatures(rs, contrastType="F", number=500, isCount=FALSE)
 head(genesF)
 ```
 
@@ -335,7 +339,7 @@ head(genesF)
 plotHeatmap(rs, clusterSamplesData="dendrogramValue",
             clusterFeaturesData=unique(genesF[,"IndexInOriginal"]),
             main="F statistics",
-            breaks=.99)
+            breaks=.99, sampleData=c("time_points"))
 ```
 
 The F statistic is not particularly useful to identify markers. The `getBestFeatures`
@@ -346,7 +350,7 @@ function offers three alternative approaches.
 * `Dendro`: uses the cluster hierarchy (from the dendrogram) to compute only important contrasts.
 
 ```{r pairwise}
-genesPairs <- getBestFeatures(rs, contrastType="Pairs", number=50, isCount=TRUE)
+genesPairs <- getBestFeatures(rs, contrastType="Pairs", number=50, isCount=FALSE)
 
 plotHeatmap(rs, clusterSamplesData="dendrogramValue",
             clusterFeaturesData=unique(genesPairs[,"IndexInOriginal"]),
@@ -355,21 +359,21 @@ plotHeatmap(rs, clusterSamplesData="dendrogramValue",
 ```
 
 ```{r one_all}
-genesOneAll <- getBestFeatures(rs, contrastType="OneAgainstAll", number=50, isCount=TRUE)
+genesOneAll <- getBestFeatures(rs, contrastType="OneAgainstAll", number=50, isCount=FALSE)
 
 plotHeatmap(rs, clusterSamplesData="dendrogramValue",
             clusterFeaturesData=unique(genesOneAll[,"IndexInOriginal"]),
             main="One versus All",
-            breaks=.99)
+            breaks=.99, sampleData=c("time_points"))
 ```
 
 ```{r dendro}
-genesDendro <- getBestFeatures(rs, contrastType="Dendro", number=50, isCount=TRUE)
+genesDendro <- getBestFeatures(rs, contrastType="Dendro", number=50, isCount=FALSE)
 
 plotHeatmap(rs, clusterSamplesData="dendrogramValue",
             clusterFeaturesData=unique(genesDendro[,"IndexInOriginal"]),
             main="Constrasts based on dendrogram",
-            breaks=.99)
+            breaks=.99, sampleData=c("time_points"))
 ```
 
 # Return contrasts for use in external DE analysis
