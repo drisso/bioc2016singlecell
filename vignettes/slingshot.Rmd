@@ -54,12 +54,16 @@ We will take our inputs from the previous sections: the normalized counts matrix
 
 ```{r datain, eval=TRUE}
 ## data(normClust) ...eventually
-load('~/Projects/bioc2016singlecell/data/scone_res.rda')
-load('~/Projects/bioc2016singlecell/data/rsec_res.rda')
-pcaX <- prcomp(t(norm_logcounts), center = TRUE, scale = TRUE)$x[,1:3]
 
-## Dimensionality reduction
-# pcaX <- prcomp(t(counts), center = TRUE, scale = FALSE)
+load('~/Projects/oe_p63/E4_scone_none_fq_ruv1_bio_nobatch_1Kgl05.Rda')
+pcaX <- pcaX[! mergeCl %in% c(4,20),1:3]
+colnames(pcaX) <- c('PC-1','PC-2','PC-3')
+clus <- as.character(mergeCl[! mergeCl %in% c(4,20)])
+clus[clus != '-1'] <- paste('m',clus[clus != '-1'],sep='')
+
+## Examine dimensionality reduction
+# plot3d(pcaX, aspect = 'iso')
+
 ```
 
 # Step 1: Assign clusters to lineages with `get_lineages`
@@ -69,25 +73,25 @@ The `get_lineages` function takes as input an `n x p` matrix and a vector of clu
 This analysis can be performed in an entirely unsupervised manner or in a semi-supervised manner by specifying known beginning and end point clusters. We recommend that you specify a root cluster; this will have no effect on how the clusters are connected, but it will allow for nicer curves in datasets with a branching structure. Pre-specified end point clusters will be constrained to only one connection.
 
 ```{r lines_unsup}
-l1 <- get_lineages(X, clus)
-# plot_tree(X, clus, l1, threeD = TRUE)
-plot_tree(X, clus, l1, dim = 3)
+l1 <- get_lineages(pcaX, clus)
+# plot_tree(pcaX, clus, l1, threeD = TRUE)
+plot_tree(pcaX, clus, l1, dim = 3)
 ```
 
 Running `get_lineages` with no supervision produces the connections shown above. Since no root cluster was specified, `slingshot` picked one of the leaf-node clusters to be the beginning, based on a simple parsimony rule. The root cluster is the leaf-node cluster connected by a green line.
 
 ```{r lines_sup_start}
-l2 <- get_lineages(X, clus, start.clus = '10')
-# plot_tree(X, clus, l2, threeD = TRUE)
-plot_tree(X, clus, l2, dim = 3)
+l2 <- get_lineages(pcaX, clus, start.clus = 'm10')
+# plot_tree(pcaX, clus, l2, threeD = TRUE)
+plot_tree(pcaX, clus, l2, dim = 3)
 ```
 
 When we specify a root cluster we get the same connections and the only difference is which line is drawn in green.
 
 ```{r lines_sup_end}
-l3 <- get_lineages(X, clus, start.clus = '10', end.clus = '17')
-# plot_tree(X, clus, l3, threeD = TRUE)
-plot_tree(X, clus, l3, dim = 3)
+l3 <- get_lineages(pcaX, clus, start.clus = 'm10', end.clus = 'm17')
+# plot_tree(pcaX, clus, l3, threeD = TRUE)
+plot_tree(pcaX, clus, l3, dim = 3)
 ```
 
 Here we demonstrate the ability to specify end point clusters, which puts a constraing on the connections. We now draw the MST subject to the constraint that given end point clusters must be leaves. Pre-specified end point clusters are connected by red lines.
@@ -108,9 +112,9 @@ In order to construct smooth lineages, `get_curves` follows an iterative process
 When there are two or more lineages, we add an additional step to the algorithm: averaging curves near shared cells. Both lineages should agree fairly well on cells that have yet to differentiate, so at each iteration we average the curves in the neighborhood of these cells. This increases the stability of the algorithm and produces smooth branching lineages.
 
 ```{r curves}
-crv <- get_curves(X, clus, l2)
-# plot_curves(X, clus, c, threeD = TRUE)
-plot_curves(X, clus, crv, dim = 3)
+crv <- get_curves(pcaX, clus, l2)
+# plot_curves(pcaX, clus, c, threeD = TRUE)
+plot_curves(pcaX, clus, crv, dim = 3)
 ```
 
 The output of `get_curves` is a list with one element per curve. Each element is an object of the `principal.curve` class, with the following slots:
