@@ -12,18 +12,19 @@ License: Artistic-2.0
 Depends:
   R (>= 3.3),
   devtools
-Imports:
+Suggests:
   clusterExperiment,
   scone,
   slingshot,
-  SummarizedExperiment
-Suggests:
+  SummarizedExperiment,
+  MAST,
   BiocStyle,
   knitr,
   rmarkdown
 Remotes:
   epurdom/clusterExperiment@develop,
   YosefLab/scone,
-  kstreet13/slingshot
+  kstreet13/slingshot,
+  RGLab/MAST
 VignetteBuilder: knitr
 LazyData: true
