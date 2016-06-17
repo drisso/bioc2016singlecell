@@ -1,0 +1,198 @@
+---
+title: "Lineage Reconstruction"
+author: "Kelly Street"
+date: "`r Sys.Date()`"
+output: 
+  BiocStyle::html_document:
+    toc: true
+vignette: >
+  %\VignetteEncoding{UTF-8}
+---
+
+<!--
+%\VignetteEngine{knitr::rmarkdown}
+%\VignetteIndexEntry{clusterExperiment Vignette}
+-->
+
+```{r options, results="hide", include=FALSE, cache=FALSE, results='hide', message=FALSE}
+## change cache to FALSE
+knitr::opts_chunk$set(fig.align="center", cache=TRUE, cache.path = "clusterExperimentTutorial_cache/", fig.path="clusterExperimentTutorial_figure/",error=FALSE, #make it stop on error
+fig.width=6,fig.height=6,autodep=TRUE,out.width="600px",out.height="600px", results="markup", echo=TRUE, eval=TRUE)
+#knitr::opts_knit$set(stop_on_error = 2L) #really make it stop
+#knitr::dep_auto()
+options(getClass.msg=FALSE) #get rid of annoying messages about cache until fixed internally in R
+
+set.seed(6473) ## for reproducibility
+
+## library(bioc2016singlecell) ## add back when ready
+
+## for now load individual dependencies
+library(slingshot)
+```
+
+# Introduction
+
+This is the third part of the Bioc2016 workshop "Analysis of single-cell RNA-seq data with R and Bioconductor."
+
+In this part we will cover lineage reconstruction with the `Githubpkg("kstreet13/slingshot")` package.
+
+The goal of `slingshot` is to use clusters to uncover global structure and convert this structure into smooth lineages represented by one-dimensional variables, often called ``pseudotime.'' We give tools for learning cluster relationships in an unsupervised or semi-supervised manner and constructing smooth curves representing each lineage, with visualization methods for each step.
+
+## Basic `slingshot` analysis
+
+The minimal input to `slingshot` is a matrix representing the cells in a reduced-dimensional space and a vector of clustering results. The analysis then procedes:
+
+* Find connections between clusters with the `get_lineages` function, optionally specifying known start and end points.
+* Construct smooth curves and pseudotime variables with the `get_curves` function.
+* Assess the cluster connectivity with `plot_tree` and the curve stability with `plot_curves`.
+
+Using connections between clusters to define global structure improves the stability of inferred lineages. And our use of smooth curves in place of piecewise-linear ones reduces variability in the inferred pseudotime vectors.
+
+## An example dataset
+
+We will take our inputs from the previous sections: the normalized counts matrix obtained with `scone` and the cluster assignments obtained with `clusterExperiment`, both of which can be loaded directly from the workshop package.
+
+```{r datain, eval=TRUE}
+## data(normClust) ...eventually
+# clus.labels <- clusterMatrix(ce)[,1]  is this right? documentation says rows = clusters
+
+## for now
+load('~/Projects/oe_p63/E4_scone_none_fq_ruv1_bio_nobatch_1Kgl05.Rda')
+X <- pcaX[! mergeCl %in% c(4,20), 1:3]
+clus <- mergeCl[! mergeCl %in% c(4,20)]
+
+## Dimensionality reduction
+# pcaX <- prcomp(t(counts), center = TRUE, scale = FALSE)
+```
+
+# Step 1: Assign clusters to lineages with `get_lineages`
+
+The `get_lineages` function takes as input an `n x p` matrix and a vector of clustering results of length `n`. It then maps connections between adjacent clusters using a minimum spanning tree (MST) and identifies paths through these connections that represent potential lineages.
+
+This analysis can be performed in an entirely unsupervised manner or in a semi-supervised manner by specifying known beginning and end point clusters. We recommend that you specify a beginning cluster; this will have no effect on how the clusters are connected, but it will allow for nicer curves in datasets with a branching structure. Pre-specified end point clusters will be constrained to only one connection.
+
+```{r unsup_lines}
+l1 <- get_lineages(X, clus)
+#plot_tree(X, clus, l1, threeD = TRUE)
+plot_tree(X, clus, l1, dim = 2)
+```
+
+```{r sup_lines_start}
+l2 <- get_lineages(X, clus, start.clus = '10')
+#plot_tree(X, clus, l2, threeD = TRUE)
+plot_tree(X, clus, l1, dim = 2)
+```
+
+```{r sup_lines_end}
+l3 <- get_lineages(X, clus, start.clus = '10', end.clus = '17')
+#plot_tree(X, clus, l3, threeD = TRUE)
+plot_tree(X, clus, l1, dim = 2)
+```
+
+
+In the call above, we have set the following parameters using a single value.
+
+* `clusterFunction` is set to "hierarchical01" to use hierarchical clustering to cluster the co-clustering matrix of the subsamplings.
+* `alphas` is set to 0.3.
+* `subsample` and `sequential` are set to TRUE to perform subsampling and sequential clustering.
+
+The parameters with a range of values are the following.
+
+* `dimReduce`: use either PCA or most variable genes for clustering.
+* `nPCADims`: use either 10 or 50 PCs for PCA.
+* `nVarDims`: use either top 500 or 1000 most variable genes.
+* `ks`: use between 5 and 15 as the value of `k` in `kmeans`.
+
+As we can see from the output, we generated many different clusterings. One way to visualize them is through the `plotClusters` function. 
+
+```{r plotClusterEx1, eval=FALSE}
+defaultMar <- par("mar")
+plotCMar <- c(1.1,8.1,4.1,1.1)
+par(mar=plotCMar)
+
+plotClusters(ce, main="Clusters from clusterMany", axisLine=-1)
+```
+
+This plot shows the samples in the columns, and different clusterings on the rows. Each sample is color coded based on its clustering for that row, where the colors have been chosen to try to match up clusters across different clusterings that show large overlap. Moreover, the samples have been ordered so that each subsequent clustering (starting at the top and going down) will try to order the samples to keep the clusters together, without rearranging the clustering blocks of the previous clustering/row.
+
+We can see that some clusters are fairly stable across different choices of dimensions while others can vary dramatically. Notice that some samples are white. This indicates that they have the value -1, meaning they were not clustered. This is from our choices to require at least 5 samples to make a cluster. 
+
+To retrieve the actual results of each clustering, we can use the `clusterMatrix` and `primaryClusters` functions.
+
+```{r clusterMatrix, eval=FALSE}
+head(clusterMatrix(ce)[,1:3])
+table(primaryCluster(ce))
+```
+
+After a call to `clusterMany` the primary clusters are simply defined as the first parameter combinations (i.e., the first column of `clusterMatrix`). We can change this, if we want, say, to select the third clustering as our preferred choice.
+
+```{r setCluster, eval=FALSE}
+primaryClusterIndex(ce) <- 3
+ce
+```
+
+# Step 2: Find a consensus with `combineMany`
+
+To find a consensus clustering across the many different clusterings created by `clusterMany` the function `combineMany` can be used next. 
+
+```{r combineMany, eval=FALSE}
+ce <- combineMany(ce, proportion = 0.6, minSize = 5)
+```
+
+Notice we get a warning that we did not specify any clusters to combine, so it is using the default -- those from the previous call. 
+
+If we look at the `clusterMatrix` of the returned `ce` object, we see that the new cluster from `combineMany` has been added to the existing clusterings. This is the basic strategy of the functions in this package. Any clustering that is created is added to existing clusterings, so the user does not need to keep track of past clusterings and can easily compare what has changed. 
+
+```{r lookAtCombineMany, eval=FALSE}
+head(clusterMatrix(ce)[,1:3])
+par(mar=plotCMar)
+plotClusters(ce)
+```
+
+The proportion argument regulates how many times two samples need to be in the same cluster across parameters to be together in the combined clustering. Decreasing the value of `proportion` results in fewer "unclustered" (i.e., -1) samples. Another parameter that controls the number of unassigned samples is `minSize`, which discards the combined clusters with less than `minSize` samples.
+
+# Step 3: Merge clusters together with `makeDendrogram` and `mergeClusters`
+
+It is not uncommon that `combineMany` will result in too many small clusters, which in practice are too closely related to be useful. Since our final goal is to find gene markers for each clusters, we argue that we can merge clusters that show no or little differential expression (DE) between them.
+
+This functionality is implemented in the `mergeClusters` function. `mergeClusters` needs a hierarchical clustering of the clusters; it then goes progressively up that hierarchy, deciding whether two adjacent clusters can be merged. The function `makeDendrogram` makes such a hierarchy between clusters (by applying `hclust` to the medoids of the clusters).
+
+Here, we use the 1,000 most variable genes to make the cluster hierarchy.
+
+```{r makeDendrogram, eval=FALSE}
+ce<-makeDendrogram(ce, dimReduce="var", ndims=1000)
+plotDendrogram(ce)
+```
+
+It is useful to first run `mergeClusters` without actually creating any object so as to preview what the final clustering will be (and perhaps to help in setting the cutoff).
+
+```{r mergeClustersPlot, eval=FALSE}
+mergeClusters(ce, mergeMethod="adjP", plot="mergeMethod")
+```
+
+```{r mergeClusters, eval=FALSE}
+ce <- mergeClusters(ce,mergeMethod="adjP",cutoff=0.01)
+par(mar=plotCMar)
+plotClusters(ce)
+plotCoClustering(ce,whichClusters=c("mergeClusters","combineMany"))
+```
+
+Notice that `mergeClusters` combines clusters based on the actual values of the features, while the `coClustering` plot shows how often the samples clustered together.
+
+Finally, we can do a heatmap visualizing this final step of clustering.
+
+```{r plotHeatmap, eval=FALSE}
+plotHeatmap(ce, clusterSamplesData="dendrogramValue", breaks=.99)
+```
+
+# Step 4: Find marker genes with `getBestFeatures`
+
+## Limma with voom weights
+
+## Account for zero-inflation with MAST
+
+# Session Info
+
+```{r session}
+sessionInfo()
+```
