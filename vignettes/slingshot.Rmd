@@ -24,9 +24,7 @@ options(getClass.msg=FALSE) #get rid of annoying messages about cache until fixe
 
 set.seed(6473) ## for reproducibility
 
-## library(bioc2016singlecell) ## add back when ready
-
-## for now load individual dependencies
+library(bioc2016singlecell)
 library(slingshot)
 ```
 
