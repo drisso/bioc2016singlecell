@@ -1,0 +1,209 @@
+---
+title: "Quality Control (QC) and Normalization"
+author: "Michael Cole"
+date: "`r Sys.Date()`"
+output: 
+  BiocStyle::html_document:
+    toc: true
+vignette: >
+  %\VignetteEncoding{UTF-8}
+---
+
+<!--
+%\VignetteEngine{knitr::rmarkdown}
+%\VignetteIndexEntry{scone Vignette}
+-->
+
+```{r options, results="hide", include=FALSE, cache=FALSE, results='hide', message=FALSE}
+
+## change cache to FALSE
+knitr::opts_chunk$set(fig.align="center", cache=TRUE, cache.path = "sconeTutorial_cache/", fig.path="sconeTutorial_figure/",error=FALSE, #make it stop on error
+fig.width=6,fig.height=6,autodep=TRUE,out.width="600px",out.height="600px", results="markup", echo=TRUE, eval=TRUE)
+#knitr::opts_knit$set(stop_on_error = 2L) #really make it stop
+#knitr::dep_auto()
+options(getClass.msg=FALSE) #get rid of annoying messages about cache until fixed internally in R
+
+set.seed(6473) ## for reproducibility
+
+filterCount <- function(counts, nRead=5, nCell=5){
+  filter <- apply(counts, 1, function(x) length(x[x>=nRead])>=nCell)
+  return(filter)
+}
+
+## library(bioc2016singlecell) ## add back when ready
+
+## for now load individual dependencies
+library(EDASeq)
+library(scone)
+
+```
+
+# Introduction
+
+This is the first part of the Bioc2016 workshop "Analysis of single-cell RNA-seq data with R and Bioconductor."
+
+In this part we will cover single-cell RNA-Seq quality control (QC) and normalization with the `r Githubpkg("YosefLab/scone")` package. We plan on submitting the package to Bioconductor in the near future.
+
+Single-cell RNA sequencing (scRNA-Seq) technologies are opening the way for transcriptome-wide profiling across diverse and complex mammalian tissues, facilitating unbiased identification of novel cell sub-populations and their functional roles. As in other high-throughput assays, a fraction of the heterogeneity observed in scRNA-Seq data results from batch effects and other technical artifacts. In particular, these protocols’ reliance on miniscule amounts of starting mRNA can lead to widespread  “drop-out effects,” in which expressed transcripts are missed. Due to the biases inherent to these assays, data normalization is an essential step prior to any downstream analyses. Furthermore, due to wide-range of scRNA-Seq study designs used in the field, we cannot expect to find a one-size-fits-all solution to these problems.
+
+`scone` supports a rational, data-driven framework for assessing the efficacy of various normalization workflows, encouraging users to explore trade-offs inherent to their dataset prior to finalizing a data normalization strategy. We provide an interface for running multiple normalization workflows in parallel. We also offer tools for ranking workflows and visualizing trade-offs. We import some common normalization modules used in traditional bulk sequencing, and provide support for integrating user-specified normalization modules.
+
+## The `scone` workflow
+
+The basic qc and normalization workflow is 
+
+* Filter samples using the `metric_sample_filter` function.
+* Run and score many different normalization workflows (different combinations of normalization functions) using the main `scone` function.
+* Browse top-ranked methods and visualize trade-offs with the `biplot_colored` function.
+
+Each normalization workflow is composed of 3 steps:
+
+* Data imputation: replacing zero-abundance values with expected values under a drop-out model. NOT INCLUDED IN THIS WORKSHOP.
+* Scaling or quantile normalization: i) normalization that scales each sample's transcriptome abundances by a single factor or ii) more complex offsets that match quantiles across samples. Examples: TMM or DESeq scaling factors, upper quartile normalization, or full-quantile normalization.
+* Regression-based approaches for removing unwanted correlated variation from the data. Examples: RUVg or regression on Principal Components of library alignment metrics.
+
+## Prelimary Analysis of Example Data
+
+We will start from raw matrix objects obtained from a standard transcriptome alignment pipeline. Raw data and important reference data can be loaded directly from the workshop package. 
+
+```{r datain, eval=TRUE}
+
+## Load Example Data
+load("../data/ws_input.rda")
+
+## Joint distribution of batches and biological conditions (time after induction)
+table(batch,bio)
+
+```
+
+Notice that each time-point is composed of multiple technical batches. This feature is common among scRNA-Seq studies due to limitations on the number of cells that can be harvested and sequenced concurrently.
+
+We will utilize functions from the `EDASeq` Bioconductor package to visualize the quality of the raw data.
+
+```{r eda, eval=TRUE}
+
+## EDA HERE
+
+```
+
+# Step 1: Sample filtering with `metric_sample_filter`
+
+The most basic sample filtering function in `scone` is the `metric_sample_filter`. It takes as input an expression matrix, the number of reads per cell library, and the ratio of reads aligned to the genome. The ouput is a list of logical arrays designating each sample as having failed (TRUE) or passed (FALSE) a threshold-based filter on the two metrics above, as well as the "transcriptome breadth" and area under an estimated False-Negative Rate curve.
+
+Before we proceed, we should perform preliminary gene filtering.
+
+```{r filterCount, eval=TRUE}
+
+pre_genefilter <- filterCount(counts)
+
+```
+
+
+```{r metric_sample_filter, eval=TRUE}
+
+mfilt_report <- metric_sample_filter(expr = counts,
+                                     nreads = qc$NREADS,ralign = qc$RALIGN,
+                                     suff_nreads = 10^5,
+                                     suff_ralign = 90,
+                                     suff_breadth = 0,
+                                     
+                                     gene_filter = pre_genefilter,pos_controls = hk,
+                                     zcut = 3,mixture = FALSE, plot = TRUE)
+m_sampfilter = !apply(simplify2array(mfilt_report),1,any)
+
+```
+
+In the call above, we have set the following parameters using a single value.
+
+* TBA
+
+As we can see from the output...
+
+```{r filterCount2}
+
+# Filter Samples
+fcounts = counts[,m_sampfilter]
+fqc = qc[m_sampfilter,]
+
+fbatch = batch[m_sampfilter]
+fbio = bio[m_sampfilter]
+
+# Re-filter genes
+genefilter <- filterCount(fcounts)
+
+fcounts = fcounts[genefilter,]
+
+fhk = hk[hk %in% rownames(fcounts)]
+fde = de[de %in% rownames(fcounts)]
+
+```
+
+# Step 2: Run and score multiple normalization workflows using `scone`
+
+
+```{r scone_params}
+
+params <- scone(expr = as.matrix(fcounts),scaling = c(none = identity,deseq = DESEQ_FN, tmm = TMM_FN, uqp = UQ_FN_POS, fq = FQT_FN),
+                ruv_negcon = fhk, k_ruv = 3,
+                qc = as.matrix(fqc), k_qc = 3,
+                bio = fbio,adjust_bio = "yes",
+                batch = fbatch,adjust_batch = "yes",
+                run = FALSE)
+head(params)
+
+is_screened = (params$adjust_biology == "bio") & (params$adjust_batch != "batch")
+
+params = params[!is_screened,]
+
+```
+
+```{r scone_run}
+res <- scone(expr = as.matrix(fcounts),scaling = c(none = identity, deseq = DESEQ_FN, tmm = TMM_FN, uqp = UQ_FN_POS, fq = FQT_FN),
+             ruv_negcon = fhk, k_ruv = 3,
+             qc = as.matrix(fqc), k_qc = 3,
+             bio = fbio,adjust_bio = "yes",
+             batch = fbatch,adjust_batch = "yes",
+             run = TRUE,params = params,
+             eval_poscon = fde, eval_kclust = 2:3, conditional_pam = TRUE)
+
+head(res$scores)
+```
+
+# Step 3: Selecting a normalization for downstream analysis
+
+```{r biplot_colored}
+
+pc_obj = prcomp(res$scores[,-ncol(res$scores)],center = TRUE,scale = FALSE)
+bp_obj = biplot_colored(pc_obj,y = -res$scores[,ncol(res$scores)],expand = .6)
+
+points(t(bp_obj[1,]), pch = 1, col = "red", cex = 1)
+points(t(bp_obj[1,]), pch = 1, col = "red", cex = 1.5)
+
+points(t(bp_obj[rownames(bp_obj) == rownames(params)[1],]), pch = 1, col = "blue", cex = 1)
+points(t(bp_obj[rownames(bp_obj) == rownames(params)[1],]), pch = 1, col = "blue", cex = 1.5)
+
+arrows(bp_obj[rownames(bp_obj) == rownames(params)[1],][1],
+       bp_obj[rownames(bp_obj) == rownames(params)[1],][2],
+       bp_obj[1,][1],
+       bp_obj[1,][2],
+       lty = 2, lwd = 2)
+
+```
+
+```{r pca}
+
+pc_obj = prcomp(t(res$normalized_data[[rownames(params)[1]]]),center = TRUE,scale = FALSE)
+plot(pc_obj$x[,1:2], col = as.numeric(as.factor(fbio)),pch = 16, main = rownames(params)[1])
+legend("bottomleft",legend = levels(as.factor(fbio)),pch =16, col = 1:nlevels(as.factor(fbio)))
+
+pc_obj = prcomp(t(res$normalized_data[[1]]),center = TRUE,scale = FALSE)
+plot(pc_obj$x[,1:2], col = as.numeric(as.factor(fbio)), pch = 16, main = names(res$normalized_data)[1])
+legend("bottomleft",legend = levels(as.factor(fbio)),pch =16, col = 1:nlevels(as.factor(fbio)))
+
+```
+
+# Session Info
+
+```{r session}
+sessionInfo()
+```
