@@ -69,7 +69,7 @@ We will start from raw matrix objects obtained from a standard transcriptome ali
 ```{r datain, eval=TRUE}
 
 ## Load Example Data
-load("../data/input.rda")
+load("../data/ws_input.rda")
 
 ## Joint distribution of batches and biological conditions (time after induction)
 table(batch,bio)
@@ -103,9 +103,12 @@ pre_genefilter <- filterCount(counts)
 
 mfilt_report <- metric_sample_filter(expr = counts,
                                      nreads = qc$NREADS,ralign = qc$RALIGN,
+                                     suff_nreads = 10^5,
                                      suff_ralign = 90,
+                                     suff_breadth = 0,
+                                     
                                      gene_filter = pre_genefilter,pos_controls = hk,
-                                     zcut = 1.5,mixture = FALSE, plot = TRUE)
+                                     zcut = 3,mixture = FALSE, plot = TRUE)
 m_sampfilter = !apply(simplify2array(mfilt_report),1,any)
 
 ```
@@ -140,7 +143,7 @@ fde = de[de %in% rownames(fcounts)]
 
 ```{r scone_params}
 
-params <- scone(expr = as.matrix(fcounts),scaling = c(deseq = DESEQ_FN, tmm = TMM_FN, uqp = UQ_FN_POS, fq = FQT_FN),
+params <- scone(expr = as.matrix(fcounts),scaling = c(none = identity,deseq = DESEQ_FN, tmm = TMM_FN, uqp = UQ_FN_POS, fq = FQT_FN),
                 ruv_negcon = fhk, k_ruv = 3,
                 qc = as.matrix(fqc), k_qc = 3,
                 bio = fbio,adjust_bio = "yes",
@@ -155,7 +158,7 @@ params = params[!is_screened,]
 ```
 
 ```{r scone_run}
-res <- scone(expr = as.matrix(fcounts),scaling = c(deseq = DESEQ_FN, tmm = TMM_FN, uqp = UQ_FN_POS, fq = FQT_FN),
+res <- scone(expr = as.matrix(fcounts),scaling = c(none = identity, deseq = DESEQ_FN, tmm = TMM_FN, uqp = UQ_FN_POS, fq = FQT_FN),
              ruv_negcon = fhk, k_ruv = 3,
              qc = as.matrix(fqc), k_qc = 3,
              bio = fbio,adjust_bio = "yes",
@@ -171,9 +174,33 @@ head(res$scores)
 ```{r biplot_colored}
 
 pc_obj = prcomp(res$scores[,-ncol(res$scores)],center = TRUE,scale = FALSE)
-biplot_colored(pc_obj,y = res$scores[,ncol(res$scores)],expand = .6)
+bp_obj = biplot_colored(pc_obj,y = -res$scores[,ncol(res$scores)],expand = .6)
+
+points(t(bp_obj[1,]), pch = 1, col = "red", cex = 1)
+points(t(bp_obj[1,]), pch = 1, col = "red", cex = 1.5)
+
+points(t(bp_obj[rownames(bp_obj) == rownames(params)[1],]), pch = 1, col = "blue", cex = 1)
+points(t(bp_obj[rownames(bp_obj) == rownames(params)[1],]), pch = 1, col = "blue", cex = 1.5)
+
+arrows(bp_obj[rownames(bp_obj) == rownames(params)[1],][1],
+       bp_obj[rownames(bp_obj) == rownames(params)[1],][2],
+       bp_obj[1,][1],
+       bp_obj[1,][2],
+       lty = 2, lwd = 2)
+
 ```
 
+```{r pca}
+
+pc_obj = prcomp(t(res$normalized_data[[rownames(params)[1]]]),center = TRUE,scale = FALSE)
+plot(pc_obj$x[,1:2], col = as.numeric(as.factor(fbio)),pch = 16, main = rownames(params)[1])
+legend("bottomleft",legend = levels(as.factor(fbio)),pch =16, col = 1:nlevels(as.factor(fbio)))
+
+pc_obj = prcomp(t(res$normalized_data[[1]]),center = TRUE,scale = FALSE)
+plot(pc_obj$x[,1:2], col = as.numeric(as.factor(fbio)), pch = 16, main = names(res$normalized_data)[1])
+legend("bottomleft",legend = levels(as.factor(fbio)),pch =16, col = 1:nlevels(as.factor(fbio)))
+
+```
 
 # Session Info
 
