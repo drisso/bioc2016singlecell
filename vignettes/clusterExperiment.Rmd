@@ -22,20 +22,14 @@ fig.width=6, fig.height=6, autodep=TRUE, out.width="600px", out.height="600px", 
 #knitr::dep_auto()
 options(getClass.msg=FALSE) #get rid of annoying messages about cache until fixed internally in R
 
-set.seed(6473) ## for reproducibility
-
-filterCount <- function(counts, nRead=5, nCell=5){
-  filter <- apply(counts, 1, function(x) length(x[x>=nRead])>=nCell)
-  return(filter)
-}
+set.seed(98883) ## for reproducibility
 
 ## library(bioc2016singlecell) ## add back when ready
 
 ## for now load individual dependencies
 library(clusterExperiment) ## use develop for now
 library(SummarizedExperiment)
-library(EDASeq)
-library(RUVSeq)
+library(scone)
 library(cluster)
 library(MAST)
 ```
@@ -56,28 +50,13 @@ We will start from the normalized data obtained in the first part of the worksho
 ## data(normalized) ...eventually
 
 ## for now
-load("../data/input.rda")
-
-## Filter genes
-counts <- as.matrix(counts[,1:91])
-gene_filter <- filterCount(counts, nRead = 20, nCell = 5)
-
-counts <- counts[which(gene_filter),]
-dim(counts)
-
-## Housekeeping genes
-hk <- intersect(hk, rownames(counts))
-
-## Normalization
-fq <- betweenLaneNormalization(counts, which="full")
-ruv <- RUVg(log1p(fq), hk, k=1, round=FALSE, isLog = TRUE)
-counts <- ruv$normalizedCounts
-#counts[counts<0] <- 0
+load("../data/scone_res.rda")
+load("../data/ws_input.rda")
 
 # Summarized Experiment
-se <- SummarizedExperiment(list(counts=counts),
-                           colData=data.frame(batch=batch[1:91],
-                                              time_points=bio[1:91]))
+se <- SummarizedExperiment(list(counts=norm_logcounts),
+                           colData=data.frame(batch=batch[colnames(norm_logcounts)],
+                                              time_points=bio[colnames(norm_logcounts)]))
 
 
 ```
@@ -100,7 +79,7 @@ Each of these steps forces the researcher to make some choices, e.g.,
 These choices are very likely to impact the results.
 
 ```{r pca}
-pca <- prcomp(t(assay(se)[intersect(de, rownames(counts)),]), center=TRUE, scale=TRUE)
+pca <- prcomp(t(assay(se)), center=TRUE)
 plot(pca$x, pch=19, col=bigPalette[bio])
 legend("topleft", levels(bio), fill=bigPalette)
 
@@ -112,7 +91,7 @@ res2 <- pam(pca$x[,1:3], k=3)
 
 pairs(pca$x[,1:3], pch=19, col=bigPalette[res2$cluster])
 
-plot(pca$sdev^2/sum(pca$sdev^2))
+plot(pca$sdev^2/sum(pca$sdev^2), xlab="PC", ylab="Percent of explained variance")
 
 res3 <- pam(pca$x[,1:6], k=3)
 
@@ -124,7 +103,7 @@ The main idea behind `clusterExperiment` (`r Githubpkg("epurdom/clusterExperimen
 To repeat this simple example within the `clusterExperiment` framework, we can use the function `clusterMany`.
 
 ```{r pca_cm}
-cm <- clusterMany(se, isCount=FALSE, dimReduce="PCA",  nPCADims=c(2, 3, 6), 
+cm <- clusterMany(se, dimReduce="PCA",  nPCADims=c(2, 3, 6), 
                   ks = 3, clusterFunction = "pam")
 cm
 apply(clusterMatrix(cm), 2, table)
@@ -199,7 +178,7 @@ cl3 <- clusterSingle(se, subsample = TRUE, sequential = FALSE,
                      clusterFunction = c("hierarchical01"), 
                      clusterDArgs = list(minSize=5, alpha=0.3), 
                      subsampleArgs = list("k"=3,"clusterFunction"="pam"),
-                     dimReduce = c("PCA"), isCount=FALSE, ndims=10)
+                     dimReduce = c("PCA"), ndims=10)
 
 plotCoClustering(cl3)
 
@@ -231,8 +210,8 @@ cl <- clusterSingle(se, subsample = TRUE, sequential = TRUE,
                      clusterFunction = c("hierarchical01"), 
                      clusterDArgs = list(minSize=5, alpha=0.3),
                      subsampleArgs = list("clusterFunction"="pam"),
-                     seqArgs = list(k0=4, remain.n=10),
-                     dimReduce = c("PCA"), isCount=FALSE, ndims=10)
+                     seqArgs = list(k0=5, remain.n=10, top.can=5),
+                     dimReduce = c("PCA"), ndims=10)
 cl
 ```
 
@@ -249,12 +228,30 @@ The `RSEC` function implements the following steps:
 3. Merge clusters together with `makeDendrogram` and `mergeClusters`.
 
 ```{r rsec}
-rs <- RSEC(se, isCount=FALSE, nPCADims=c(10, 20), alphas=c(0.2, 0.3),
-           mergeCutoff=0.01, clusterFunction="hierarchical01",
-           combineProportion=0.5, combineMinSize=3, betas=0.7,
+rs <- RSEC(se, k0s = 4:15, nPCADims=c(10, 20), alphas=c(0.2, 0.3), 
+           clusterFunction="hierarchical01", betas=0.7,
+           combineProportion=0.5, combineMinSize=3,
+           dendroReduce = "mad", dendroNDims = 1000,
+           mergeMethod = "adjP", mergeCutoff=0.005, 
            seqArgs = list(remain.n=10, top.can=5))
 rs
 ```
+
+There are many arguments to the RSEC function.
+
+Argument       |  Passed to    | Meaning
+---------------|:-------------:|------:|
+nPCADims       |  transform    | nPCADims
+alphas         |  clusterD     | alpha
+clusterFunction |  clusterD    | clusterFunction    
+k0s            |  seqCluster   |  k0 
+betas          |  seqCluster   | beta
+combineProportion |  combineMany | 
+combineMinSize |  combineMany  |
+dendroReduce   |  makeDendrogram |
+dendroNDims    |  makeDendrogram |
+mergeMethod    |  mergeClusters |
+mergeCutoff    |  mergeClusters |
 
 The `plotClusters` function is a good way to get a sense of how many clusterings we tried and to visualize the consensus across parameters.
 
@@ -293,21 +290,21 @@ This functionality is implemented in the `mergeClusters` function. `mergeCluster
 Here, we use the 1,000 most variable genes to make the cluster hierarchy.
 
 ```{r makeDendrogram}
-ce <- makeDendrogram(rs, whichCluster = "combineMany", dimReduce="mad", ndims=1000)
-plotDendrogram(ce)
+manual <- makeDendrogram(rs, whichCluster = "combineMany", dimReduce="mad", ndims=1000)
+plotDendrogram(manual)
 ```
 
 It is useful to first run `mergeClusters` without actually creating any object so as to preview what the final clustering will be (and perhaps to help in setting the cutoff).
 
 ```{r mergeClustersPlot}
-mergeClusters(ce, mergeMethod="adjP", plot="adjP", cutoff=0.01, isCount=FALSE)
+mergeClusters(manual, mergeMethod="adjP", plot="adjP", cutoff=0.01)
 ```
 
 ```{r mergeClusters}
-ce <- mergeClusters(ce, mergeMethod="adjP", plot="none", cutoff=0.01, isCount=FALSE)
+manual <- mergeClusters(manual, mergeMethod="adjP", plot="none", cutoff=0.005)
 par(mar=plotCMar)
-plotClusters(ce, whichClusters = 1:3)
-plotCoClustering(ce,whichClusters=c("mergeClusters","combineMany"))
+plotClusters(manual, whichClusters = c("mergeClusters", "combineMany"))
+plotCoClustering(manual, whichClusters=c("mergeClusters","combineMany"))
 ```
 
 Notice that `mergeClusters` combines clusters based on the actual values of the features, while the `coClustering` plot shows how often the samples clustered together.
@@ -355,7 +352,7 @@ genesPairs <- getBestFeatures(rs, contrastType="Pairs", number=50, isCount=FALSE
 plotHeatmap(rs, clusterSamplesData="dendrogramValue",
             clusterFeaturesData=unique(genesPairs[,"IndexInOriginal"]),
             main="All pairwise comparisons",
-            breaks=.99)
+            breaks=.99, sampleData=c("time_points"))
 ```
 
 ```{r one_all}
@@ -384,7 +381,7 @@ Recently, several authors have suggested strategies to account for zero-inflatio
 
 We can return the contrast matrix from `clusterExperiment` and use it as an input for a MAST DE analysis.
 
-```{r mast}
+```{r mast, eval=FALSE}
 contrMat <- clusterContrasts(rs, contrastType="Dendro")$contrastMatrix
 wh_rm <- which(primaryCluster(rs)==-1)
 sca <- FromMatrix("SingleCellAssay", t(transform(rs[,-wh_rm])), cData=data.frame(Clusters=primaryClusterNamed(rs)[-wh_rm]))
@@ -394,12 +391,8 @@ cont_levels <- paste("Clustersm", 1:max(primaryCluster(rs)), sep="")
 mast_res <- lapply(1:ncol(contrMat), function(i) {
   cont <- gsub("X", "Clustersm", colnames(contrMat))[i]
   hp <- Hypothesis(cont, cont_levels)
-  coefs <- fit@coefC
-  coefs[is.na(coefs)] <- 0
-  logfc <- coefs %*% hp@contrastMatrix[,1]
-  logfc <- logfc / log(2)
   wald <- waldTest(fit, hp)
-  retval <- data.frame(Feature=rownames(wald), ContrastName=paste("Node", i, sep=""), Contrast=colnames(contrMat)[i], logFC=logfc[rownames(wald),], P.Value=wald[,1,3], stringsAsFactors = FALSE)
+  retval <- data.frame(Feature=rownames(wald), ContrastName=paste("Node", i, sep=""), Contrast=colnames(contrMat)[i], P.Value=wald[,1,3], stringsAsFactors = FALSE)
   retval <- retval[order(retval$P.Value),]
   return(retval[1:50,])
 })
@@ -410,6 +403,12 @@ plotHeatmap(rs, clusterSamplesData="dendrogramValue",
             clusterFeaturesData=unique(mast_res$Feature),
             main="MAST DE genes (based on Dendrogram hierarchy)",
             breaks=.99)
+```
+
+```{r save}
+clusters <- clusterMatrixNamed(rs)[,"combineMany"]
+clusters_merged <- primaryClusterNamed(rs)
+save(clusters, clusters_merged, file="rsec_res.rda")
 ```
 
 # Session Info
