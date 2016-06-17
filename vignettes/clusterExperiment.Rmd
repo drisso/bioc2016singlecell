@@ -57,8 +57,6 @@ load("../data/ws_input.rda")
 se <- SummarizedExperiment(list(counts=norm_logcounts),
                            colData=data.frame(batch=batch[colnames(norm_logcounts)],
                                               time_points=bio[colnames(norm_logcounts)]))
-
-
 ```
 
 ## Motivation
@@ -186,7 +184,7 @@ cl7 <- clusterSingle(se, subsample = TRUE, sequential = FALSE,
                      clusterFunction = c("hierarchical01"), 
                      clusterDArgs = list(minSize=5, alpha=0.3),
                      subsampleArgs = list("k"=7,"clusterFunction"="pam"),
-                     dimReduce = c("PCA"), isCount=FALSE, ndims=10)
+                     dimReduce = c("PCA"), ndims=10)
 
 plotCoClustering(cl7)
 ```
@@ -381,12 +379,22 @@ Recently, several authors have suggested strategies to account for zero-inflatio
 
 We can return the contrast matrix from `clusterExperiment` and use it as an input for a MAST DE analysis.
 
-```{r mast, eval=FALSE}
+```{r mast}
+## get contrasts from clusterExperiment object
 contrMat <- clusterContrasts(rs, contrastType="Dendro")$contrastMatrix
 wh_rm <- which(primaryCluster(rs)==-1)
-sca <- FromMatrix("SingleCellAssay", t(transform(rs[,-wh_rm])), cData=data.frame(Clusters=primaryClusterNamed(rs)[-wh_rm]))
 
+## threshold data to apply MAST
+norm <- transform(rs)
+norm[norm<0] <- 0
+
+## create MAST object
+sca <- FromMatrix("SingleCellAssay", t(norm[,-wh_rm]), cData=data.frame(Clusters=primaryClusterNamed(rs)[-wh_rm]))
+
+## model fit
 fit <- zlm(~0+Clusters, sca)
+
+## hp test
 cont_levels <- paste("Clustersm", 1:max(primaryCluster(rs)), sep="")
 mast_res <- lapply(1:ncol(contrMat), function(i) {
   cont <- gsub("X", "Clustersm", colnames(contrMat))[i]
@@ -408,7 +416,7 @@ plotHeatmap(rs, clusterSamplesData="dendrogramValue",
 ```{r save}
 clusters <- clusterMatrixNamed(rs)[,"combineMany"]
 clusters_merged <- primaryClusterNamed(rs)
-save(clusters, clusters_merged, file="rsec_res.rda")
+save(clusters, clusters_merged, file="../data/rsec_res.rda")
 ```
 
 # Session Info
