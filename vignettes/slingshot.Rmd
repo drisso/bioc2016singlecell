@@ -54,12 +54,9 @@ We will take our inputs from the previous sections: the normalized counts matrix
 
 ```{r datain, eval=TRUE}
 ## data(normClust) ...eventually
-# clus <- clusterMatrix(ce)[,1]  is this right?
-
-## for now
-load('~/Projects/oe_p63/E4_scone_none_fq_ruv1_bio_nobatch_1Kgl05.Rda')
-X <- pcaX[! mergeCl %in% c(4,20), 1:3]
-clus <- mergeCl[! mergeCl %in% c(4,20)]
+load('~/Projects/bioc2016singlecell/data/scone_res.rda')
+load('~/Projects/bioc2016singlecell/data/rsec_res.rda')
+pcaX <- prcomp(t(norm_logcounts), center = TRUE, scale = TRUE)$x[,1:3]
 
 ## Dimensionality reduction
 # pcaX <- prcomp(t(counts), center = TRUE, scale = FALSE)
@@ -71,7 +68,7 @@ The `get_lineages` function takes as input an `n x p` matrix and a vector of clu
 
 This analysis can be performed in an entirely unsupervised manner or in a semi-supervised manner by specifying known beginning and end point clusters. We recommend that you specify a root cluster; this will have no effect on how the clusters are connected, but it will allow for nicer curves in datasets with a branching structure. Pre-specified end point clusters will be constrained to only one connection.
 
-```{r unsup_lines}
+```{r lines_unsup}
 l1 <- get_lineages(X, clus)
 # plot_tree(X, clus, l1, threeD = TRUE)
 plot_tree(X, clus, l1, dim = 3)
@@ -79,7 +76,7 @@ plot_tree(X, clus, l1, dim = 3)
 
 Running `get_lineages` with no supervision produces the connections shown above. Since no root cluster was specified, `slingshot` picked one of the leaf-node clusters to be the beginning, based on a simple parsimony rule. The root cluster is the leaf-node cluster connected by a green line.
 
-```{r sup_lines_start}
+```{r lines_sup_start}
 l2 <- get_lineages(X, clus, start.clus = '10')
 # plot_tree(X, clus, l2, threeD = TRUE)
 plot_tree(X, clus, l2, dim = 3)
@@ -87,7 +84,7 @@ plot_tree(X, clus, l2, dim = 3)
 
 When we specify a root cluster we get the same connections and the only difference is which line is drawn in green.
 
-```{r sup_lines_end}
+```{r lines_sup_end}
 l3 <- get_lineages(X, clus, start.clus = '10', end.clus = '17')
 # plot_tree(X, clus, l3, threeD = TRUE)
 plot_tree(X, clus, l3, dim = 3)
@@ -104,57 +101,28 @@ After constructing the MST, `get_lineages` identifies paths through the tree to 
 
 # Step 2: Construct smooth lineages and order cells with `get_curves`
 
-To find a consensus clustering across the many different clusterings created by `clusterMany` the function `combineMany` can be used next. 
+In order to model development along these various lineages, we will construct smooth curves with the function `get_curves`. Using smooth curves based on all the cells eliminates the problem of cells projecting onto vertices of piece-wise linear trajectories and makes `slingshot` more robust to noise in the clustering results.
 
-```{r combineMany, eval=FALSE}
-ce <- combineMany(ce, proportion = 0.6, minSize = 5)
+In order to construct smooth lineages, `get_curves` follows an iterative process similar to that of principal curves (Hastie and Stuetzle, 1989). When there is only a single lineage, the resulting curve is simply the principal curve through the center of the data, with one adjustment: the initial curve is constructed with the linear connections between cluster centers rather than the first prinicpal component of the data. This adjustment adds stability and typically hastens the algorithm's convergence.
+
+When there are two or more lineages, we add an additional step to the algorithm: averaging curves near shared cells. Both lineages should agree fairly well on cells that have yet to differentiate, so at each iteration we average the curves in the neighborhood of these cells. This increases the stability of the algorithm and produces smooth branching lineages.
+
+```{r curves}
+crv <- get_curves(X, clus, l2)
+# plot_curves(X, clus, c, threeD = TRUE)
+plot_curves(X, clus, crv, dim = 3)
 ```
 
-Notice we get a warning that we did not specify any clusters to combine, so it is using the default -- those from the previous call. 
+The output of `get_curves` is a list with one element per curve. Each element is an object of the `principal.curve` class, with the following slots:
 
-If we look at the `clusterMatrix` of the returned `ce` object, we see that the new cluster from `combineMany` has been added to the existing clusterings. This is the basic strategy of the functions in this package. Any clustering that is created is added to existing clusterings, so the user does not need to keep track of past clusterings and can easily compare what has changed. 
-
-```{r lookAtCombineMany, eval=FALSE}
-head(clusterMatrix(ce)[,1:3])
-par(mar=plotCMar)
-plotClusters(ce)
-```
-
-The proportion argument regulates how many times two samples need to be in the same cluster across parameters to be together in the combined clustering. Decreasing the value of `proportion` results in fewer "unclustered" (i.e., -1) samples. Another parameter that controls the number of unassigned samples is `minSize`, which discards the combined clusters with less than `minSize` samples.
+* `s`: the matrix of points that make up the curve. These correspond to the orthogonal projections of the data points, but oredered such the `lines(s)` will produce a smooth curve.
+* `tag`: the indices of the original data points in `s`.
+* `lambda`: arclengths of the points in `s` along the curve.
+* `dist`: the total squared distance between data points and their projections onto the curve.
+* `pseudotime`: the vector of pseudotime values along this lineage.
 
 # Step 3: Find temporally expressed genes
 
-It is not uncommon that `combineMany` will result in too many small clusters, which in practice are too closely related to be useful. Since our final goal is to find gene markers for each clusters, we argue that we can merge clusters that show no or little differential expression (DE) between them.
-
-This functionality is implemented in the `mergeClusters` function. `mergeClusters` needs a hierarchical clustering of the clusters; it then goes progressively up that hierarchy, deciding whether two adjacent clusters can be merged. The function `makeDendrogram` makes such a hierarchy between clusters (by applying `hclust` to the medoids of the clusters).
-
-Here, we use the 1,000 most variable genes to make the cluster hierarchy.
-
-```{r makeDendrogram, eval=FALSE}
-ce<-makeDendrogram(ce, dimReduce="var", ndims=1000)
-plotDendrogram(ce)
-```
-
-It is useful to first run `mergeClusters` without actually creating any object so as to preview what the final clustering will be (and perhaps to help in setting the cutoff).
-
-```{r mergeClustersPlot, eval=FALSE}
-mergeClusters(ce, mergeMethod="adjP", plot="mergeMethod")
-```
-
-```{r mergeClusters, eval=FALSE}
-ce <- mergeClusters(ce,mergeMethod="adjP",cutoff=0.01)
-par(mar=plotCMar)
-plotClusters(ce)
-plotCoClustering(ce,whichClusters=c("mergeClusters","combineMany"))
-```
-
-Notice that `mergeClusters` combines clusters based on the actual values of the features, while the `coClustering` plot shows how often the samples clustered together.
-
-Finally, we can do a heatmap visualizing this final step of clustering.
-
-```{r plotHeatmap, eval=FALSE}
-plotHeatmap(ce, clusterSamplesData="dendrogramValue", breaks=.99)
-```
 
 
 # Session Info
