@@ -53,13 +53,7 @@ Using connections between clusters to define global structure improves the stabi
 We will take our inputs from the previous sections: the normalized counts matrix obtained with `scone` and the cluster assignments obtained with `clusterExperiment`, both of which can be loaded directly from the workshop package.
 
 ```{r datain, eval=TRUE}
-## data(normClust) ...eventually
-
-load('~/Projects/oe_p63/E4_scone_none_fq_ruv1_bio_nobatch_1Kgl05.Rda')
-pcaX <- pcaX[! mergeCl %in% c(4,20),1:3]
-colnames(pcaX) <- c('PC-1','PC-2','PC-3')
-clus <- as.character(mergeCl[! mergeCl %in% c(4,20)])
-clus[clus != '-1'] <- paste('m',clus[clus != '-1'],sep='')
+data('full_pca')
 
 ## Examine dimensionality reduction
 # plot3d(pcaX, aspect = 'iso')
