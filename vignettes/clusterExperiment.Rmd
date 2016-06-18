@@ -24,7 +24,7 @@ options(getClass.msg=FALSE) #get rid of annoying messages about cache until fixe
 
 set.seed(98883) ## for reproducibility
 
-## library(bioc2016singlecell) ## add back when ready
+library(bioc2016singlecell)
 
 ## for now load individual dependencies
 library(clusterExperiment) ## use develop for now
@@ -38,7 +38,7 @@ library(MAST)
 
 This is the second part of the Bioc2016 workshop "Analysis of single-cell RNA-seq data with R and Bioconductor."
 
-In this part we will cover cluster analysis with the `r Githubpkg("epurdom/clusterExperiment")` package. The package will be in Bioconductor devel soon.
+In this part we will cover cluster analysis with the `r Githubpkg("epurdom/clusterExperiment")` package. The package is available on [Github](https://github.com/epurdom/clusterExperiment) and will be in Bioconductor devel soon.
 
 The goal of `clusterExperiment` is to encourage the user to try many different clustering algorithms in one package structure. We give tools for running many different clusterings and choices of parameters. We also provide visualization to compare many different clusterings and algorithms to find common shared clustering patterns. We implement common post-processing steps unrelated to the specific clustering algorithm (e.g. subsampling the data for stability, finding cluster-specific markers).
 
@@ -47,11 +47,8 @@ The goal of `clusterExperiment` is to encourage the user to try many different c
 We will start from the normalized data obtained in the first part of the workshop with `r Githubpkg("YosefLab/scone")`. The normalized data can be loaded directly from the workshop package.
 
 ```{r datain, eval=TRUE}
-## data(normalized) ...eventually
-
-## for now
-load("../data/scone_res.rda")
-load("../data/ws_input.rda")
+data(scone_res)
+data(ws_input)
 
 # Summarized Experiment
 se <- SummarizedExperiment(list(counts=norm_logcounts),
@@ -83,17 +80,17 @@ legend("topleft", levels(bio), fill=bigPalette)
 
 res1 <- pam(pca$x[,1:2], k=3)
 
-pairs(pca$x[,1:3], pch=19, col=bigPalette[res1$cluster])
+table(res1$clustering)
 
 res2 <- pam(pca$x[,1:3], k=3)
 
-pairs(pca$x[,1:3], pch=19, col=bigPalette[res2$cluster])
+table(res2$clustering)
 
 plot(pca$sdev^2/sum(pca$sdev^2), xlab="PC", ylab="Percent of explained variance")
 
 res3 <- pam(pca$x[,1:6], k=3)
 
-pairs(pca$x[,1:3], pch=19, col=bigPalette[res3$cluster])
+table(res3$clustering)
 ```
 
 The main idea behind `clusterExperiment` (`r Githubpkg("epurdom/clusterExperiment")`) is to automatically perform and compare several clustering results, based on all possible combinations of parameters, and to find a consensus across the different clusterings.
@@ -230,7 +227,7 @@ rs <- RSEC(se, k0s = 4:15, nPCADims=c(10, 20), alphas=c(0.2, 0.3),
            clusterFunction="hierarchical01", betas=0.7,
            combineProportion=0.5, combineMinSize=3,
            dendroReduce = "mad", dendroNDims = 1000,
-           mergeMethod = "adjP", mergeCutoff=0.005, 
+           mergeMethod = "adjP", mergeCutoff=0.01, 
            seqArgs = list(remain.n=10, top.can=5))
 rs
 ```
@@ -238,7 +235,7 @@ rs
 There are many arguments to the RSEC function.
 
 Argument       |  Passed to    | Meaning
----------------|:-------------:|-------------------------------------------------------------------:|
+-----------|:---------:|-------------------------------------------------------:|
 nPCADims       |  transform    | Number of PC's to be used for the clustering
 clusterFunction |  clusterD    | Function to use in the clustering of the co-clustering matrix    
 alphas         |  clusterD     | Similarity required between the clusters in the co-clustering matrix
@@ -299,7 +296,7 @@ mergeClusters(manual, mergeMethod="adjP", plot="adjP", cutoff=0.01)
 ```
 
 ```{r mergeClusters}
-manual <- mergeClusters(manual, mergeMethod="adjP", plot="none", cutoff=0.005)
+manual <- mergeClusters(manual, mergeMethod="adjP", plot="none", cutoff=0.01)
 par(mar=plotCMar)
 plotClusters(manual, whichClusters = c("mergeClusters", "combineMany"))
 plotCoClustering(manual, whichClusters=c("mergeClusters","combineMany"))
@@ -323,6 +320,9 @@ to find such DE genes.
 
 ```{r dendro_merge}
 rs <- makeDendrogram(rs, dimReduce="mad", ndims=1000)
+
+## set good breaks for heatmap colors
+breaks <- c(min(norm_logcounts), seq(0, quantile(norm_logcounts[norm_logcounts > 0], .99, na.rm = TRUE), length = 50), max(norm_logcounts))
 ```
 
 ```{r getBestFeatures}
@@ -334,7 +334,7 @@ head(genesF)
 plotHeatmap(rs, clusterSamplesData="dendrogramValue",
             clusterFeaturesData=unique(genesF[,"IndexInOriginal"]),
             main="F statistics",
-            breaks=.99, sampleData=c("time_points"))
+            breaks=breaks, sampleData=c("time_points"))
 ```
 
 The F statistic is not particularly useful to identify markers. The `getBestFeatures`
@@ -350,7 +350,7 @@ genesPairs <- getBestFeatures(rs, contrastType="Pairs", number=50, isCount=FALSE
 plotHeatmap(rs, clusterSamplesData="dendrogramValue",
             clusterFeaturesData=unique(genesPairs[,"IndexInOriginal"]),
             main="All pairwise comparisons",
-            breaks=.99, sampleData=c("time_points"))
+            breaks=breaks, sampleData=c("time_points"))
 ```
 
 ```{r one_all}
@@ -359,7 +359,7 @@ genesOneAll <- getBestFeatures(rs, contrastType="OneAgainstAll", number=50, isCo
 plotHeatmap(rs, clusterSamplesData="dendrogramValue",
             clusterFeaturesData=unique(genesOneAll[,"IndexInOriginal"]),
             main="One versus All",
-            breaks=.99, sampleData=c("time_points"))
+            breaks=breaks, sampleData=c("time_points"))
 ```
 
 ```{r dendro}
@@ -368,7 +368,8 @@ genesDendro <- getBestFeatures(rs, contrastType="Dendro", number=50, isCount=FAL
 plotHeatmap(rs, clusterSamplesData="dendrogramValue",
             clusterFeaturesData=unique(genesDendro[,"IndexInOriginal"]),
             main="Constrasts based on dendrogram",
-            breaks=.99, sampleData=c("time_points"))
+            breaks=breaks, sampleData=c("time_points"))
+
 ```
 
 # Return contrasts for use in external DE analysis
@@ -379,11 +380,13 @@ Recently, several authors have suggested strategies to account for zero-inflatio
 
 We can return the contrast matrix from `clusterExperiment` and use it as an input for a MAST DE analysis.
 
-```{r mast}
+```{r get_contrasts}
 ## get contrasts from clusterExperiment object
 contrMat <- clusterContrasts(rs, contrastType="Dendro")$contrastMatrix
 wh_rm <- which(primaryCluster(rs)==-1)
+```
 
+```{r mast}
 ## threshold data to apply MAST
 norm <- transform(rs)
 norm[norm<0] <- 0
@@ -407,15 +410,10 @@ mast_res <- lapply(1:ncol(contrMat), function(i) {
 
 mast_res <- do.call(rbind, mast_res)
 
-plotHeatmap(norm[unique(mast_res$Feature),], clusterSamplesData=rs@dendro_samples,
-            main="MAST DE genes (based on Dendrogram hierarchy)",
-            breaks=.99, sampleData=data.frame(clusters=primaryClusterNamed(rs)))
-```
-
-```{r save}
-clusters <- clusterMatrixNamed(rs)[,"combineMany"]
-clusters_merged <- primaryClusterNamed(rs)
-save(clusters, clusters_merged, file="../data/rsec_res.rda")
+plotHeatmap(rs, clusterSamplesData="dendrogramValue",
+            clusterFeaturesData=unique(mast_res$Feature),
+            main="Constrasts based on dendrogram",
+            breaks=breaks, sampleData=c("time_points"))
 ```
 
 # Session Info
