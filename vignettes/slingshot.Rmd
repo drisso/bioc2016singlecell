@@ -99,7 +99,7 @@ After constructing the MST, `get_lineages` identifies paths through the tree to 
 
 In order to model development along these various lineages, we will construct smooth curves with the function `get_curves`. Using smooth curves based on all the cells eliminates the problem of cells projecting onto vertices of piece-wise linear trajectories and makes `slingshot` more robust to noise in the clustering results.
 
-In order to construct smooth lineages, `get_curves` follows an iterative process similar to that of principal curves (Hastie and Stuetzle, 1989). When there is only a single lineage, the resulting curve is simply the principal curve through the center of the data, with one adjustment: the initial curve is constructed with the linear connections between cluster centers rather than the first prinicpal component of the data. This adjustment adds stability and typically hastens the algorithm's convergence.
+In order to construct smooth lineages, `get_curves` follows an iterative process similar to that of principal curves presented in [@princurve]. When there is only a single lineage, the resulting curve is simply the principal curve through the center of the data, with one adjustment: the initial curve is constructed with the linear connections between cluster centers rather than the first prinicpal component of the data. This adjustment adds stability and typically hastens the algorithm's convergence.
 
 When there are two or more lineages, we add an additional step to the algorithm: averaging curves near shared cells. Both lineages should agree fairly well on cells that have yet to differentiate, so at each iteration we average the curves in the neighborhood of these cells. This increases the stability of the algorithm and produces smooth branching lineages.
 
@@ -119,6 +119,10 @@ The output of `get_curves` is a list with one element per curve. Each element is
 
 # Step 3: Find temporally expressed genes
 
+```{r genedata}
+data('var_genes')
+
+```
 
 
 # Session Info
