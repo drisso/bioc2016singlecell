@@ -89,8 +89,10 @@ document.addEventListener("DOMContentLoaded", function() {
 <div id="an-example-dataset" class="section level2">
 <h2><span class="header-section-number">1.1</span> An Example Dataset</h2>
 <p>The first two parts of this workshop will analyze a small set of cells lying along a developmental trajectory. We will start from raw data objects obtained from a standard transcriptome alignment pipeline. Raw data and important reference data can be loaded directly from the workshop package.</p>
-<pre class="r"><code>## Load Example Data
-load(&quot;../data/ws_input.rda&quot;)
+<pre class="r"><code>library(bioc2016singlecell)
+
+## Load Example Data
+data(ws_input)
 ls()</code></pre>
 <pre><code>## [1] &quot;batch&quot;  &quot;bio&quot;    &quot;counts&quot; &quot;de&quot;     &quot;hk&quot;     &quot;qc&quot;</code></pre>
 <p>The <code>counts</code> data frame contains feature-level read counts from tophat alignments of 96 single-cell libraries to the mm10 reference genome <span class="citation">(Trapnell, Pachter, and Salzberg 2009)</span>. <code>qc</code> contains library alignment metrics obtained from <a href="http://broadinstitute.github.io/picard/">Picard</a>.</p>
