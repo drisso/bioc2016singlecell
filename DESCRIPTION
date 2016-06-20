@@ -18,6 +18,7 @@ Suggests:
   slingshot,
   SummarizedExperiment,
   MAST,
+  gam,
   BiocStyle,
   knitr,
   rmarkdown,

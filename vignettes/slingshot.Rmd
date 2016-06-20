@@ -57,7 +57,7 @@ data('full_pca')
 
 ## Examine dimensionality reduction
 # plot3d(pcaX, aspect = 'iso')
-
+pairs(pcaX[,1:3], asp = 1)
 ```
 
 # Step 1: Assign clusters to lineages with `get_lineages`
@@ -122,38 +122,41 @@ The output of `get_curves` is a list with one element per curve. Each element is
 
 # Step 3: Find temporally expressed genes
 
+Typically, the next step will be to find genes that change their expression as a function of developmental time. This can be done using the full genes-by-samples data matrix, but we will use the subset consisting of the 1,000 most variable genes.
+
 ```{r genedata}
 data('var_genes')
-# pst1 <- crv[[1]]$pseudotime
-# pst2 <- crv[[2]]$pseudotime
+```
 
+For a quick analysis, we will regress each gene on the two pseudotime vectors we have generated, using a general additive model (GAM). This allows us to detect non-linear patterns in gene expression over developmental time.
 
-gam.pval <- gam.fit <- vector("list",length(crv))
+```{r fitgam}
+gam.pval <- vector("list",length(crv))
 for(l in 1:length(crv)){
   t <- crv[[l]]$pseudotime
   y <- vargenes[,! is.na(t)]
   t <- t[! is.na(t)]
-  gam.res <- apply(y,1,function(z)
-  {
-    d <- data.frame(z=z, pt=t)
-    tmp <- gam(z ~ lo(pt), data=d)
+  gam.pval[[l]] <- apply(y,1,function(z){
+    d <- data.frame(z=z, t=t)
+    tmp <- gam(z ~ lo(t), data=d)
     p <- summary(tmp)[4][[1]][1,5]
-    f <- tmp$fitted.value
-    list(p=p,f=f)
+    p
   })
-  gam.pval[[l]] <- unlist(lapply(gam.res, function(z) z$p))
-  gam.fit[[l]] <- lapply(gam.res, function(z) z$f)
 }
+```
 
+We can then pick out the top genes for each lineage and visualize their expression over developmental time with a heatmap.
+
+```{r heatmaps}
 topgenes1 <- names(sort(gam.pval[[1]], decreasing = FALSE))[1:100]
 heatdata1 <- vargenes[rownames(vargenes) %in% topgenes1, order(crv[[1]]$pseudotime, na.last = NA)]
 heatclus1 <- clus[order(crv[[1]]$pseudotime, na.last = NA)]
-# plotHeatmap(heatdata1, clusterSamples=FALSE, sampleData = data.frame(Cluster = heatclus1))
+plotHeatmap(heatdata1, clusterSamples=FALSE, sampleData = data.frame(Cluster = heatclus1))
 
 topgenes2 <- names(sort(gam.pval[[2]], decreasing = FALSE))[1:100]
 heatdata2 <- vargenes[rownames(vargenes) %in% topgenes2, order(crv[[2]]$pseudotime, na.last = NA)]
 heatclus2 <- clus[order(crv[[2]]$pseudotime, na.last = NA)]
-# plotHeatmap(heatdata2, clusterSamples=FALSE, sampleData = data.frame(Cluster = heatclus2))
+plotHeatmap(heatdata2, clusterSamples=FALSE, sampleData = data.frame(Cluster = heatclus2))
 ```
 
 
