@@ -29,7 +29,6 @@ library(bioc2016singlecell)
 ## for now load individual dependencies
 library(clusterExperiment) ## use develop for now
 library(SummarizedExperiment)
-library(scone)
 library(cluster)
 library(MAST)
 ```
@@ -74,7 +73,7 @@ Each of these steps forces the researcher to make some choices, e.g.,
 These choices are very likely to impact the results.
 
 ```{r pca}
-pca <- prcomp(t(assay(se)), center=TRUE)
+pca <- prcomp(t(assay(se)), center=TRUE, scale=TRUE)
 plot(pca$x, pch=19, col=bigPalette[bio])
 legend("topleft", levels(bio), fill=bigPalette)
 
@@ -131,32 +130,28 @@ Note that, unlike each individual call to `pam`, we do not obtain `k = 3` cluste
 In general, `combineMany` results in a larger number of smaller clusters, that can then be
 merged with the `mergeClusters` function.
 
-The basic premise of our workflow is to find small, robust clusters of samples, and then merge them into larger clusters as relevant. We find that many algorithmic methods for choosing the appropriate number of clusters for methods  err on the side of too few clusters. However, we find in practice that we tend to prefer to err on finding many clusters and then merging them based on examining the data.
+The basic premise of our workflow is to find small, robust clusters of samples, and then merge them into larger clusters as relevant. We find that many algorithmic methods for choosing the appropriate number of clusters err on the side of too few clusters. However, we find in practice that we tend to prefer to err on finding many clusters and then merging them based on examining the data.
 
-## The `clusterExperiment` workflow
+# RSEC: Resampling-based Sequential Ensemble Clustering
 
-The basic intended clustering workflow is 
+The main use of the package is to apply the RSEC algorithm to single-cell RNA-seq data.
 
-* Implement many different clusterings using different choices of parameters using the function `clusterMany`. This results in a large collection of clusterings, where each clustering is based on different parameters. 
+The idea behind RSEC is to find a large number of small, coherent clusters by:
+
+* Subsampling of data to find robust clusters.
+* Perform sequential clustering to find a group of coherent samples, remove them, start over.
+
+We perform this routine over many parameters and find a single consensus.
+
+## The `RSEC` workflow
+
+The basic intended clustering workflow is implemented in the `RSEC` wrapper function and consists of the following steps (also available as individual functions).
+
+* Apply many different clusterings using different choices of parameters using the function `clusterMany`. This results in a large collection of clusterings, where each clustering is based on different parameters. 
 * Find a unifying clustering across these many clusterings using the `combineMany` function. 
 * Determine whether some clusters should be merged together into larger clusters. This involves two steps:
     - Find a hierarchical clustering of the clusters found by `combineMany` using `makeDendrogram`
     - Merge together clusters of this hierarchy based on the percentage of differential expression, using `mergeClusters`.
-
-## Additional functionalities of `clusterExperiment`
-
-The package encodes many common practices that are shared across clustering algorithms, like subsampling the data, computing silhouette width, sequential clustering procedures, and so forth. We describe here the basic expected usage of the package. Additional functionality is available in the `r Githubpkg("epurdom/clusterExperiment")` vignette and manual pages.
-
-# RSEC: Resampling-based Sequential Ensemble Clustering
-
-One of the main use of the package is to apply the RSEC algorithm to single-cell RNA-seq data.
-
-The idea behind RSEC is to find a large number of small, coherent clusters:
-
-* Subsampling of data to find robust clusters.
-* Sequential clustering to find a group of coherent samples, remove them, start over.
-
-We perform this routine over many parameters and find a single consensus.
 
 ## Subsample clustering
 
@@ -223,8 +218,8 @@ The `RSEC` function implements the following steps:
 3. Merge clusters together with `makeDendrogram` and `mergeClusters`.
 
 ```{r rsec}
-rs <- RSEC(se, k0s = 4:15, nPCADims=c(10, 20), alphas=c(0.2, 0.3), 
-           clusterFunction="hierarchical01", betas=0.7,
+rs <- RSEC(se, k0s = 4:15, dimReduce = "PCA", nPCADims=c(10, 20), 
+           alphas=c(0.2, 0.3), clusterFunction="hierarchical01", betas=0.7,
            combineProportion=0.5, combineMinSize=3,
            dendroReduce = "mad", dendroNDims = 1000,
            mergeMethod = "adjP", mergeCutoff=0.01, 
@@ -236,11 +231,12 @@ There are many arguments to the RSEC function.
 
 Argument       |  Passed to    | Meaning
 -----------|:---------:|-------------------------------------------------------:|
+dimReduce      |  transform    | Which dimensionality reduction to perform
 nPCADims       |  transform    | Number of PC's to be used for the clustering
 clusterFunction |  clusterD    | Function to use in the clustering of the co-clustering matrix    
-alphas         |  clusterD     | Similarity required between the clusters in the co-clustering matrix
+alphas         |  clusterD     | 1 - similarity required between the clusters in the co-clustering matrix
 k0s            |  seqCluster   | Initial k values for the sequential strategy
-betas          |  seqCluster   | Stability required across paramters to determine that a cluster is stable
+betas          |  seqCluster   | Stability required across parameters to determine that a cluster is stable
 combineProportion |  combineMany | Minimum proportion of times two samples should be together to be assigned to a cluster.
 combineMinSize |  combineMany  | Clusters with size smaller than this will be ignored (resulting in a -1 label)
 dendroReduce   |  makeDendrogram | How to reduce the dimension of the data when computing the dendrogram
@@ -254,16 +250,13 @@ The `plotClusters` function is a good way to get a sense of how many clusterings
 par(mar=plotCMar)
 plotClusters(rs, main="Clusters from RSEC", axisLine=-1,
              sampleData=c("time_points", "batch"))
-
-# newrs <- plotClusters(rs, whichClusters = clusterLabels(rs)[-1], main="Clusters from RSEC", axisLine=-1, matchToTop=TRUE, resetColors=TRUE)
-# plotClusters(newrs, existingColors="all")
 ```
 
 This plot shows the samples in the columns, and different clusterings on the rows. Each sample is color coded based on its clustering for that row, where the colors have been chosen to try to match up clusters across different clusterings that show large overlap. Moreover, the samples have been ordered so that each subsequent clustering (starting at the top and going down) will try to order the samples to keep the clusters together, without rearranging the clustering blocks of the previous clustering/row.
 
 We can see that some clusters are fairly stable across different choices of dimensions while others can vary dramatically. Notice that some samples are white. This indicates that they have the value -1, meaning they were not clustered.
 
-Another good visualization is the `plotCoClustering` function, that shows, how many times samples in each cluster are together across parameters.
+Another good visualization is the `plotCoClustering` function, which shows how many times samples in each cluster are together across parameters.
 
 ```{r plotCoClustering}
 plotCoClustering(rs)

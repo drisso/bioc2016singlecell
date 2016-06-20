@@ -22,8 +22,7 @@ Suggests:
   BiocStyle,
   knitr,
   rmarkdown,
-  RColorBrewer,
-  gam
+  RColorBrewer
 Remotes:
   epurdom/clusterExperiment@release/0.99.1-9003,
   YosefLab/scone,
