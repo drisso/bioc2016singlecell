@@ -2,6 +2,7 @@
 title: "Lineage Reconstruction"
 author: "Kelly Street"
 date: "`r Sys.Date()`"
+bibliography: bibFile.bib
 output: 
   BiocStyle::html_document:
     toc: true
@@ -15,17 +16,18 @@ vignette: >
 -->
 
 ```{r options, results="hide", include=FALSE, cache=FALSE, results='hide', message=FALSE}
-## change cache to FALSE
-knitr::opts_chunk$set(fig.align="center", cache=TRUE, cache.path = "slingshotTutorial_cache/", fig.path="slingshotTutorial_figure/",error=FALSE, #make it stop on error
-fig.width=6,fig.height=6,autodep=TRUE,out.width="600px",out.height="600px", results="markup", echo=TRUE, eval=TRUE)
+knitr::opts_chunk$set(fig.align="center", cache=FALSE,error=FALSE, #make it stop on error
+fig.width=7, fig.height=7, autodep=TRUE, out.width="600px", out.height="600px", results="markup", echo=TRUE, eval=TRUE)
 #knitr::opts_knit$set(stop_on_error = 2L) #really make it stop
 #knitr::dep_auto()
 options(getClass.msg=FALSE) #get rid of annoying messages about cache until fixed internally in R
 
-set.seed(6473) ## for reproducibility
+set.seed(98883) ## for reproducibility
 
 library(bioc2016singlecell)
 library(slingshot)
+library(clusterExperiment)
+library(gam)
 ```
 
 # Introduction
@@ -50,7 +52,7 @@ Using connections between clusters to define global structure improves the stabi
 
 We will take our inputs from the previous sections: the normalized counts matrix obtained with `scone` and the cluster assignments obtained with `clusterExperiment`, both of which can be loaded directly from the workshop package.
 
-```{r datain, eval=TRUE}
+```{r datain}
 data('full_pca')
 
 ## Examine dimensionality reduction
@@ -89,6 +91,7 @@ plot_tree(pcaX, clus, l3, dim = 3)
 Here we demonstrate the ability to specify end point clusters, which puts a constraing on the connections. We now draw the MST subject to the constraint that given end point clusters must be leaves. Pre-specified end point clusters are connected by red lines.
 
 There are a few additional arguments we could have passed to `get_lineages` for more greater control:
+
 * `dist.fun` is a function for computing distances between clusters. The default is squared distance between cluster centers normalized by their joint covariance matrix.
 * `omega` is a granularity parameter, allowing the user to set an upper limit on connection distances. It takes values between 0 and 1 (or `Inf`), representing a percentage of the largest observed distance.
 * `distout` is a logical value, indicating whether the user wants the pairwise cluster distance matrix to be returned with the output.
@@ -121,7 +124,36 @@ The output of `get_curves` is a list with one element per curve. Each element is
 
 ```{r genedata}
 data('var_genes')
+# pst1 <- crv[[1]]$pseudotime
+# pst2 <- crv[[2]]$pseudotime
 
+
+gam.pval <- gam.fit <- vector("list",length(crv))
+for(l in 1:length(crv)){
+  t <- crv[[l]]$pseudotime
+  y <- vargenes[,! is.na(t)]
+  t <- t[! is.na(t)]
+  gam.res <- apply(y,1,function(z)
+  {
+    d <- data.frame(z=z, pt=t)
+    tmp <- gam(z ~ lo(pt), data=d)
+    p <- summary(tmp)[4][[1]][1,5]
+    f <- tmp$fitted.value
+    list(p=p,f=f)
+  })
+  gam.pval[[l]] <- unlist(lapply(gam.res, function(z) z$p))
+  gam.fit[[l]] <- lapply(gam.res, function(z) z$f)
+}
+
+topgenes1 <- names(sort(gam.pval[[1]], decreasing = FALSE))[1:100]
+heatdata1 <- vargenes[rownames(vargenes) %in% topgenes1, order(crv[[1]]$pseudotime, na.last = NA)]
+heatclus1 <- clus[order(crv[[1]]$pseudotime, na.last = NA)]
+# plotHeatmap(heatdata1, clusterSamples=FALSE, sampleData = data.frame(Cluster = heatclus1))
+
+topgenes2 <- names(sort(gam.pval[[2]], decreasing = FALSE))[1:100]
+heatdata2 <- vargenes[rownames(vargenes) %in% topgenes2, order(crv[[2]]$pseudotime, na.last = NA)]
+heatclus2 <- clus[order(crv[[2]]$pseudotime, na.last = NA)]
+# plotHeatmap(heatdata2, clusterSamples=FALSE, sampleData = data.frame(Cluster = heatclus2))
 ```
 
 
@@ -130,3 +162,6 @@ data('var_genes')
 ```{r session}
 sessionInfo()
 ```
+
+# References
+
