@@ -2,6 +2,7 @@
 title: "Quality Control (QC) and Normalization"
 author: "Michael Cole"
 date: "`r Sys.Date()`"
+bibliography: bibFile.bib
 output: 
   BiocStyle::html_document:
     toc: true
@@ -15,26 +16,18 @@ vignette: >
 -->
 
 ```{r options, results="hide", include=FALSE, cache=FALSE, results='hide', message=FALSE}
-
-## change cache to FALSE
-knitr::opts_chunk$set(fig.align="center", cache=TRUE, cache.path = "sconeTutorial_cache/", fig.path="sconeTutorial_figure/",error=FALSE, #make it stop on error
+knitr::opts_chunk$set(fig.align="center", cache=TRUE,error=FALSE,
 fig.width=6,fig.height=6,autodep=TRUE,out.width="600px",out.height="600px", results="markup", echo=TRUE, eval=TRUE)
-#knitr::opts_knit$set(stop_on_error = 2L) #really make it stop
-#knitr::dep_auto()
-options(getClass.msg=FALSE) #get rid of annoying messages about cache until fixed internally in R
+options(getClass.msg=FALSE)
 
 set.seed(6473) ## for reproducibility
 
-filterCount <- function(counts, nRead=5, nCell=5){
-  filter <- apply(counts, 1, function(x) length(x[x>=nRead])>=nCell)
-  return(filter)
-}
-
-## library(bioc2016singlecell) ## add back when ready
+#library(bioc2016singlecell)
 
 ## for now load individual dependencies
 library(EDASeq)
 library(scone)
+library(RColorBrewer)
 
 ```
 
@@ -42,62 +35,159 @@ library(scone)
 
 This is the first part of the Bioc2016 workshop "Analysis of single-cell RNA-seq data with R and Bioconductor."
 
-In this part we will cover single-cell RNA-Seq quality control (QC) and normalization with the `r Githubpkg("YosefLab/scone")` package. We plan on submitting the package to Bioconductor in the near future.
+In this part we will cover single-cell RNA-Seq quality control (QC) and normalization with the `r Githubpkg("YosefLab/scone")` package.  The package is available on [Github](https://github.com/YosefLab/scone) and will be submitted to Bioconductor in the near future.
 
 Single-cell RNA sequencing (scRNA-Seq) technologies are opening the way for transcriptome-wide profiling across diverse and complex mammalian tissues, facilitating unbiased identification of novel cell sub-populations and their functional roles. As in other high-throughput assays, a fraction of the heterogeneity observed in scRNA-Seq data results from batch effects and other technical artifacts. In particular, these protocols’ reliance on miniscule amounts of starting mRNA can lead to widespread  “drop-out effects,” in which expressed transcripts are missed. Due to the biases inherent to these assays, data normalization is an essential step prior to any downstream analyses. Furthermore, due to wide-range of scRNA-Seq study designs used in the field, we cannot expect to find a one-size-fits-all solution to these problems.
 
 `scone` supports a rational, data-driven framework for assessing the efficacy of various normalization workflows, encouraging users to explore trade-offs inherent to their dataset prior to finalizing a data normalization strategy. We provide an interface for running multiple normalization workflows in parallel. We also offer tools for ranking workflows and visualizing trade-offs. We import some common normalization modules used in traditional bulk sequencing, and provide support for integrating user-specified normalization modules.
 
-## The `scone` workflow
+## An Example Dataset
 
-The basic qc and normalization workflow is 
-
-* Filter samples using the `metric_sample_filter` function.
-* Run and score many different normalization workflows (different combinations of normalization functions) using the main `scone` function.
-* Browse top-ranked methods and visualize trade-offs with the `biplot_colored` function.
-
-Each normalization workflow is composed of 3 steps:
-
-* Data imputation: replacing zero-abundance values with expected values under a drop-out model. NOT INCLUDED IN THIS WORKSHOP.
-* Scaling or quantile normalization: i) normalization that scales each sample's transcriptome abundances by a single factor or ii) more complex offsets that match quantiles across samples. Examples: TMM or DESeq scaling factors, upper quartile normalization, or full-quantile normalization.
-* Regression-based approaches for removing unwanted correlated variation from the data. Examples: RUVg or regression on Principal Components of library alignment metrics.
-
-## Prelimary Analysis of Example Data
-
-We will start from raw matrix objects obtained from a standard transcriptome alignment pipeline. Raw data and important reference data can be loaded directly from the workshop package. 
+The first two parts of this workshop will analyze a small set of cells lying along a developmental trajectory. We will start from raw data objects obtained from a standard transcriptome alignment pipeline. Raw data and important reference data can be loaded directly from the workshop package. 
 
 ```{r datain, eval=TRUE}
 
 ## Load Example Data
 load("../data/ws_input.rda")
+ls()
+
+```
+
+The `counts` data frame contains feature-level read counts from tophat alignments of 96 single-cell libraries to the mm10 reference genome [@trapnell2009]. `qc` contains library alignment metrics obtained from [Picard](http://broadinstitute.github.io/picard/).
+
+```{r showqc, eval=TRUE}
+
+colnames(qc)
+
+```
+
+`de` and `hk` are positive and negative control gene sets derived from population studies. `batch` and `bio` are factors labeling batch and timepoint respectively. Consider the joint distribution of these factors:
+
+```{r batchbio, eval=TRUE}
 
 ## Joint distribution of batches and biological conditions (time after induction)
 table(batch,bio)
 
 ```
 
-Notice that each time-point is composed of multiple technical batches. This feature is common among scRNA-Seq studies due to limitations on the number of cells that can be harvested and sequenced concurrently.
+Notice that each time-point is composed of multiple batches. This nested design is common among scRNA-Seq studies due to limitations on the number of cells that can be harvested/sequenced concurrently.
 
-We will utilize functions from the `EDASeq` Bioconductor package to visualize the quality of the raw data.
+## Technical Variability and Batch Effects
 
-```{r eda, eval=TRUE}
+We will first visualize cell level quality readouts, starting with the ratio of reads aligned to the genome:
 
-## EDA HERE
+```{r ralign, eval=TRUE}
 
-```
+# Color scheme
+cc <- c(brewer.pal(9, "Set1"), brewer.pal(8, "Set2"),brewer.pal(9,"Set3"))
 
-# Step 1: Sample filtering with `metric_sample_filter`
-
-The most basic sample filtering function in `scone` is the `metric_sample_filter`. It takes as input an expression matrix, the number of reads per cell library, and the ratio of reads aligned to the genome. The ouput is a list of logical arrays designating each sample as having failed (TRUE) or passed (FALSE) a threshold-based filter on the two metrics above, as well as the "transcriptome breadth" and area under an estimated False-Negative Rate curve.
-
-Before we proceed, we should perform preliminary gene filtering.
-
-```{r filterCount, eval=TRUE}
-
-pre_genefilter <- filterCount(counts)
+# Barplot of read proportion mapping to the genome
+barplot(qc$RALIGN[order(batch)], col=cc[batch][order(batch)], border=cc[batch][order(batch)], main="Percentage of mapped reads, colored by batch")
+legend("bottomleft", legend=levels(batch), fill=cc,cex=0.4)
 
 ```
 
+We see that there aren't important differences between batches, while there are a few cells of particularly low alignment efficiency. These cells can be removed via filtering procedures. We can alternatively consider the number of reads in each library:
+
+```{r nreads, eval=TRUE}
+
+# Barplot of total read number
+barplot(qc$NREADS[order(batch)], col=cc[batch][order(batch)], border=cc[batch][order(batch)], main="Total number of reads, colored by batch")
+legend("topright", legend=levels(batch), fill=cc, cex=0.4)
+
+```
+
+We see that coverage varies substantially between batches, and though some of this technical variability may be addressed with filtering, we will still need to carefully normalize the data to make batches comparable.
+
+It can be very helpful to visualize distributions of single metrics, but it's important to note that these metrics are often correlated. Sometimes it may be more useful to consider principal components of the quality matrix, identifying principal factors of library variation:
+
+```{r qpc, eval=TRUE}
+
+qpc = prcomp(qc,center = TRUE,scale. = TRUE)
+barplot(cumsum(qpc$sdev^2)/sum(qpc$sdev^2), border="gray", xlab="PC", ylab="proportion of variance", main="Quality PCA")
+
+```
+
+Even though 14 quality metrics have been quantified, PCA shows us that only a small number of PCs are needed to described a majority of the variance (e.g. 3 to explain 74%). We will now visualize the distribution of the first PC in the context of batch:
+
+```{r qpc_view, eval=TRUE}
+
+barplot(qpc$x[,1][order(batch)], col=cc[batch][order(batch)], border=cc[batch][order(batch)], main="Quality PC1, colored by batch")
+legend("bottomleft", legend=levels(batch), fill=cc, cex=0.8)
+
+```
+
+This PC appears to correlate with batch (particularly Y04), but it also highlights 5 outlier libaries that are significantly different from the rest. While we won't discuss the application of these PCs to filtering in this workshop, we will show how they can be applied to normalization.
+
+## Drop-out Characteristics
+
+Next we consider a uniquely single-cell problem: drop-outs. `hk` contains a list of genes that are believed to be ubiquitously and uniformily expressed across the target tissue. Because we assume these genes are expressed in all cells, we can label all zeroes as drop-out events. Below we model detection failures as a logistic function of mean expression, in line with the standard logistic model for drop-outs employed by the field.
+
+```{r fnr_fit, eval=TRUE}
+
+# Mean log10(x+1) expression
+mu_obs = rowMeans(log10(counts[hk,]+1))
+
+# Drop-outs
+drop_outs = counts[hk,] == 0
+
+# Logistic Regression Model of Failure
+ref.glms = list()
+for (si in 1:dim(drop_outs)[2]){
+  fit = glm(cbind(drop_outs[,si],1 - drop_outs[,si]) ~ mu_obs,family=binomial(logit))
+  ref.glms[[si]] = fit$coefficients
+}
+
+```
+
+The list `ref.glm` contains the intercept and slope of each fit. We can now visualize the fit curves and the corresponding Area Under the Curves (AUCs):
+
+```{r fnr_vis, eval=TRUE, fig.width= 8, fig.height= 4, out.width="800px",out.height="400px"}
+
+par(mfrow=c(1,2))
+
+# Plot Failure Curves and Calculate AUC
+plot(NULL, main = "False Negative Rate Curves",ylim = c(0,1),xlim = c(0,6), ylab = "Failure Probability", xlab = "Mean log10 Expression")
+x = (0:60)/10
+AUC = NULL
+for(si in 1:ncol(counts)){
+  y = 1/(exp(-ref.glms[[si]][1] - ref.glms[[si]][2] * x) + 1)
+  AUC[si] = sum(y)/10
+  lines(x, 1/(exp(-ref.glms[[si]][1] - ref.glms[[si]][2] * x) + 1), type = 'l', lwd = 2, col = cc[batch][si])
+}
+
+# Barplot of FNR AUC
+barplot(AUC[order(batch)], col=cc[batch][order(batch)], border=cc[batch][order(batch)], main="FNR AUC, colored by batch")
+legend("topleft", legend=levels(batch), fill=cc, cex=0.4)
+
+```
+
+You may have noticed that the 5 outlier cells seen here are the same as the 5 outliers highlighted in the PCA of quality metrics above. Drop-out summaries such as the AUC can very useful for assessing single-cell library quality.
+
+## The `scone` Workflow
+
+So far we have only described potential problems with our data set. Now we will take steps to address them! The basic qc and normalization pipeline we will use today will allow us to: 
+
+* Filter out poor libraries using the `metric_sample_filter` function.
+*  Run and score many different normalization workflows (different combinations of normalization modules) using the main `scone` function.
+* Browse top-ranked methods and visualize trade-offs with the `biplot_colored` function.
+
+The SCONE's normalization workflow template is composed of 3 modules:
+
+1) Data imputation: replacing zero-abundance values with expected values under a drop-out model. We will only consider identity imputation (no imputation) in this example.
+2) Scaling or quantile normalization: either i) normalization that scales each sample's transcriptome abundances by a single factor or ii) more complex offsets that match quantiles across samples. Examples: TMM or DESeq scaling factors, upper quartile normalization, or full-quantile normalization.
+3) Regression-based approaches for removing unwanted correlated variation from the data. Examples: RUVg [@risso2014] or regression on Quality Principal Components described above.
+
+# Step 1: Sample Filtering with `metric_sample_filter`
+
+The most basic sample filtering function in `scone` is the `metric_sample_filter`. It takes as input an expression matrix. The ouput depends on arguments provided, but generally consists of a list of 4 logicals designating each sample as having failed (TRUE) or passed (FALSE) a threshold-based filter on 4 metrics
+
+* Number of reads.
+* Ratio of reads aligned to the genome. Requires the `ralign` argument.
+* "Transcriptome breadth" - Defined here as the proportion of hiqh-quality genes detected in the sample. Requires the `gene_filter` argument.
+* FNR AUC. Requires the `pos_controls` argument.
+
+If required arguments are missing for any of the 4, the function will simply return NA instead of the corresponding logical.
 
 ```{r metric_sample_filter, eval=TRUE}
 
@@ -105,41 +195,88 @@ mfilt_report <- metric_sample_filter(expr = counts,
                                      nreads = qc$NREADS,ralign = qc$RALIGN,
                                      suff_nreads = 10^5,
                                      suff_ralign = 90,
-                                     suff_breadth = 0,
-                                     
-                                     gene_filter = pre_genefilter,pos_controls = hk,
+                                     pos_controls = hk,
                                      zcut = 3,mixture = FALSE, plot = TRUE)
-m_sampfilter = !apply(simplify2array(mfilt_report),1,any)
 
 ```
 
-In the call above, we have set the following parameters using a single value.
+In the call above, we have set the following parameters:
 
-* TBA
+* suff_nreads = 10^5. Sets max (or "sufficient") threshold for nreads filter.
+* suff_ralign = 90. Sets max threshold for ralign filter.
+* zcut = 3. Filter leniency (see below).
+* mixture = FALSE. Mixture modeling will not be used (see below).
+* plot = TRUE. Plot distributions of metrics before and after filtering.
 
-As we can see from the output...
+## On Threshold Selection
 
-```{r filterCount2}
+Let's take a closer look at the computation behind the ralign filter. In selecting the threshold value 90, `metric_sample_filter` is taking 4 values into account:
+
+1) `hard_ralign`, the default "hard" threshold at 15 - rather forgiving...
+2) 3 (`zcut`) times the standard deviation below the mean `ralign` value.
+3) 3 (`zcut`) times the MAD below the median `ralign` value.
+4) `suff_ralign`, the sufficient threshold set to 90.
+
+```{r thresh, eval=TRUE,fig.width= 6, fig.height= 4, out.width="600px",out.height="400px"}
+
+hist(qc$RALIGN, breaks = 0:100)
+# Hard threshold
+abline(v = 15, col = "yellow", lwd = 2) 
+# 3 (zcut) standard deviations below the mean ralign value
+abline(v = mean(qc$RALIGN) - 3*sd(qc$RALIGN), col = "green", lwd = 2) 
+# 3 (zcut) MADs below the median ralign value
+abline(v = median(qc$RALIGN) - 3*mad(qc$RALIGN), col = "red", lwd = 2)
+# Sufficient threshold
+abline(v = 90, col = "grey", lwd = 2)
+# Final threshold is the minimum of 1) the sufficient threshold and 2) the max of all others
+thresh = min(90,max(c(15,mean(qc$RALIGN) - 3*sd(qc$RALIGN),median(qc$RALIGN) - 3*mad(qc$RALIGN))))
+abline(v = thresh, col = "blue", lwd = 2, lty = 2)
+
+legend("topleft",legend = c("Hard","SD","MAD","Sufficient","Final"),lwd = 2, col = c("yellow","green","red","grey","blue"),lty = c(1,1,1,1,2), cex = .5)
+
+```
+
+We see here that the 3rd threshold exceeds the sufficient threshold, and so `metric_sample_filter` settles for the sufficient threshold. Note that if `mixture=TRUE` an additional criterion is included: bimodal metric distributions are fit with to a two component mixture model, and a threshold is defined with respect to the mean and standard deviation of the "better" component. As `metric_sample_filter` relies on a maximum of candidate thresholds, we recommend users treat this function as a liberal filter.
+
+## Applying the sample filter
+
+With `metric_sample_filter` output in hand, filtering out the poor samples is fairly straightforward:
+
+```{r filterCount}
+
+# Which thresholds are missing? (breadth)
+is_na_filt = unlist(lapply(is.na(mfilt_report),any)) 
+
+# Identify samples failing any threshold
+m_sampfilter = !apply(simplify2array(mfilt_report[!is_na_filt]),1,any)
 
 # Filter Samples
 fcounts = counts[,m_sampfilter]
 fqc = qc[m_sampfilter,]
-
 fbatch = batch[m_sampfilter]
 fbio = bio[m_sampfilter]
 
-# Re-filter genes
+# Simple gene filter
+filterCount <- function(counts, nRead=5, nCell=5){
+  filter <- apply(counts, 1, function(x) length(x[x>=nRead])>=nCell)
+  return(filter)
+}
 genefilter <- filterCount(fcounts)
 
+# Filter genes
 fcounts = fcounts[genefilter,]
-
 fhk = hk[hk %in% rownames(fcounts)]
 fde = de[de %in% rownames(fcounts)]
 
 ```
 
-# Step 2: Run and score multiple normalization workflows using `scone`
+# Step 2: Run and Score Normalization Workflows with `scone`
 
+As described earlier, not only does `scone` normalize expression data, but it also provides a framework for evaluationg the performance of various normalization workflows. In order to run the `scone` function, we will need to decide which workflows we will want to compare. 
+
+## Selecting Workflow Parameters with `run=FALSE`
+
+The arguments to `scone` allow for a lot of flexibility, but sometimes you will need to run very specific combinations of modules. For this purpose, `scone` can be run in `run=FALSE` mode, returning only a data frame of workflows to be performed.
 
 ```{r scone_params}
 
@@ -151,13 +288,50 @@ params <- scone(expr = as.matrix(fcounts),scaling = c(none = identity,deseq = DE
                 run = FALSE)
 head(params)
 
+```
+
+In the call above, we have set the following parameters:
+
+* scaling = list(...). This argument contains a list of scaling normalization functions that will be applied, including the identity (no-op), DESeq scaling, TMM normalization, scaling by the upper quartile of positive counts, and full-quantile normalization. 
+* ruv_negcon = fhk. A list of genes to be used as negative controls for RUVg normalization.
+* k_ruv = 3. The maximum number of RUVg factors to consider.
+* k_qc = 3. The maximum number of quality PCs (QPCs) to be included in a linear model, analogous to RUVg normalization. The qc argument must be provided.
+* adjust_bio = "yes." Timepoints will be included in RUVg or QPC normalization and restored to the residual of the regression. The bio argument must be provided.
+* adjust_batch = "yes." Batch will be included in RUVg or QPC normalization. The batch argument must be provided.
+
+These arguments translate to the following set of options:
+
+```{r scone_params_view}
+
+apply(params,2,unique)
+
+```
+
+While adjusting for biology prior to downstream analsyis is generally problematic, it can be particularly dangerous in the single-cell context: there is significantly more sample-intrinsic biological variability in scRNA-Seq data, variability that cannot be captured by exposure. In our nested design scenario we would only consider adjustments for biology when batch effects are included. We can produce an updated `params` data frame reflecting this choice:
+
+```{r scone_params_filt}
+
 is_screened = (params$adjust_biology == "bio") & (params$adjust_batch != "batch")
 
 params = params[!is_screened,]
 
 ```
 
+## Calling `scone` with `run=TRUE`
+
+Now that we have selected our workflows, we can run `scone` in `run=TRUE` mode. This mode offers a few additional arguments, including an optional `params` argument to pass any results from the `run=FALSE` mode. In order to understand these arguments, we must first understand the 8 metrics used to evaluate each normalization. The first 6 scores rely on a reduction of the normalized data down to 3 dimensions via PCA (default).
+
+* BIO_SIL. The average silhouette width of clusters defined by `bio`, defined with respect to a Euclidean distance metric over the first 3 expression PCs.
+* BATCH_SIL. The average silhouette width of clusters defined by `batch`, defined with respect to a Euclidean distance metric over the first 3 expression PCs.
+* PAM_SIL. The maximum average silhouette width of clusters defined by PAM clustering, defined with respect to a Euclidean distance metric over the first 3 expression PCs.
+* EXP_QC_COR. Maximum squared spearman correlation between first 3 expression PCs and first `k_qc` QPCs.
+* EXP_UV_COR. Maximum squared spearman correlation between first 3 expression PCs and first 3 PCs of the negative control (specified by `eval_negcon` or `ruv_negcon` by default) submatrix of the original (raw) data.
+* EXP_WV_COR. Maximum squared spearman correlation between first 3 expression PCs and first 3 PCs of the positive control (specified by `eval_poscon`) submatrix of the original (raw) data.
+* RLE_MED. The mean squared median Relative Log Expression (RLE).
+* RLE_IQR. The mean inter-quartile range (IQR) of the RLE.
+
 ```{r scone_run}
+
 res <- scone(expr = as.matrix(fcounts),scaling = c(none = identity, deseq = DESEQ_FN, tmm = TMM_FN, uqp = UQ_FN_POS, fq = FQT_FN),
              ruv_negcon = fhk, k_ruv = 3,
              qc = as.matrix(fqc), k_qc = 3,
@@ -166,7 +340,18 @@ res <- scone(expr = as.matrix(fcounts),scaling = c(none = identity, deseq = DESE
              run = TRUE,params = params,
              eval_poscon = fde, eval_kclust = 2:3, conditional_pam = TRUE)
 
+```
+
+In the call above, we have set the following parameters:
+
+* eval_poscon = fde. A list of genes to be used as positive controls for evaluation.
+* eval_kclust = 2:3. Range of k (# of clusters) to use when computing maximum average silhouette width of PAM clusterings.
+* conditional_pam = TRUE. Apply PAM clustering within timepoints rather than across all timepoints.
+
+```{r scone_view}
+
 head(res$scores)
+
 ```
 
 # Step 3: Selecting a normalization for downstream analysis
