@@ -22,6 +22,9 @@ options(getClass.msg=FALSE)
 
 set.seed(6473) ## for reproducibility
 
+library(scone)
+library(RColorBrewer)
+
 ```
 
 # Introduction
