@@ -22,7 +22,7 @@ Suggests:
   knitr,
   rmarkdown
 Remotes:
-  epurdom/clusterExperiment@develop,
+  epurdom/clusterExperiment@release/0.99.1-9003,
   YosefLab/scone,
   kstreet13/slingshot,
   RGLab/MAST
