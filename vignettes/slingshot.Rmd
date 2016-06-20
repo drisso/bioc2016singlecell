@@ -151,14 +151,15 @@ We can then pick out the top genes for each lineage and visualize their expressi
 topgenes1 <- names(sort(gam.pval[[1]], decreasing = FALSE))[1:100]
 heatdata1 <- vargenes[rownames(vargenes) %in% topgenes1, order(crv[[1]]$pseudotime, na.last = NA)]
 heatclus1 <- clus[order(crv[[1]]$pseudotime, na.last = NA)]
-plotHeatmap(heatdata1, clusterSamples=FALSE, sampleData = data.frame(Cluster = heatclus1))
+ce1 <- clusterExperiment(heatdata1, heatclus1, transformation=identity)
+plotHeatmap(ce1, clusterSamplesData="orderSamplesValue")
 
 topgenes2 <- names(sort(gam.pval[[2]], decreasing = FALSE))[1:100]
 heatdata2 <- vargenes[rownames(vargenes) %in% topgenes2, order(crv[[2]]$pseudotime, na.last = NA)]
 heatclus2 <- clus[order(crv[[2]]$pseudotime, na.last = NA)]
-plotHeatmap(heatdata2, clusterSamples=FALSE, sampleData = data.frame(Cluster = heatclus2))
+ce2 <- clusterExperiment(heatdata2, heatclus2, transformation=identity)
+plotHeatmap(ce2, clusterSamplesData="orderSamplesValue")
 ```
-
 
 # Session Info
 
