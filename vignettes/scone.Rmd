@@ -22,12 +22,6 @@ options(getClass.msg=FALSE)
 
 set.seed(6473) ## for reproducibility
 
-#library(bioc2016singlecell)
-
-## for now load individual dependencies
-library(scone)
-library(RColorBrewer)
-
 ```
 
 # Introduction
@@ -46,8 +40,10 @@ The first two parts of this workshop will analyze a small set of cells lying alo
 
 ```{r datain, eval=TRUE}
 
+library(bioc2016singlecell)
+
 ## Load Example Data
-load("../data/ws_input.rda")
+data(ws_input)
 ls()
 
 ```
