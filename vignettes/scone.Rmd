@@ -25,7 +25,6 @@ set.seed(6473) ## for reproducibility
 #library(bioc2016singlecell)
 
 ## for now load individual dependencies
-library(EDASeq)
 library(scone)
 library(RColorBrewer)
 
@@ -37,9 +36,9 @@ This is the first part of the Bioc2016 workshop "Analysis of single-cell RNA-seq
 
 In this part we will cover single-cell RNA-Seq quality control (QC) and normalization with the `r Githubpkg("YosefLab/scone")` package.  The package is available on [Github](https://github.com/YosefLab/scone) and will be submitted to Bioconductor in the near future.
 
-Single-cell RNA sequencing (scRNA-Seq) technologies are opening the way for transcriptome-wide profiling across diverse and complex mammalian tissues, facilitating unbiased identification of novel cell sub-populations and their functional roles. As in other high-throughput assays, a fraction of the heterogeneity observed in scRNA-Seq data results from batch effects and other technical artifacts. In particular, these protocols’ reliance on miniscule amounts of starting mRNA can lead to widespread  “drop-out effects,” in which expressed transcripts are missed. Due to the biases inherent to these assays, data normalization is an essential step prior to any downstream analyses. Furthermore, due to wide-range of scRNA-Seq study designs used in the field, we cannot expect to find a one-size-fits-all solution to these problems.
+Single-cell RNA sequencing (scRNA-Seq) technologies are opening the way for transcriptome-wide profiling across diverse and complex mammalian tissues, facilitating unbiased identification of novel cell sub-populations and their functional roles. As in other high-throughput assays, a fraction of the heterogeneity observed in scRNA-Seq data results from batch effects and other technical artifacts. In particular, these protocols’ reliance on minuscule amounts of starting mRNA can lead to widespread  “drop-out effects,” in which expressed transcripts are missed. Due to the biases inherent to these assays, data normalization is an essential step prior to any downstream analyses. Furthermore, due to wide-range of scRNA-Seq study designs used in the field, we cannot expect to find a one-size-fits-all solution to these problems.
 
-`scone` supports a rational, data-driven framework for assessing the efficacy of various normalization workflows, encouraging users to explore trade-offs inherent to their dataset prior to finalizing a data normalization strategy. We provide an interface for running multiple normalization workflows in parallel. We also offer tools for ranking workflows and visualizing trade-offs. We import some common normalization modules used in traditional bulk sequencing, and provide support for integrating user-specified normalization modules.
+`scone` supports a rational, data-driven framework for assessing the efficacy of various normalization workflows, encouraging users to explore trade-offs inherent to their data set prior to finalizing a data normalization strategy. We provide an interface for running multiple normalization workflows in parallel. We also offer tools for ranking workflows and visualizing trade-offs. We import some common normalization modules used in traditional bulk sequencing, and provide support for integrating user-specified normalization modules.
 
 ## An Example Dataset
 
@@ -61,7 +60,7 @@ colnames(qc)
 
 ```
 
-`de` and `hk` are positive and negative control gene sets derived from population studies. `batch` and `bio` are factors labeling batch and timepoint respectively. Consider the joint distribution of these factors:
+`de` and `hk` are positive and negative control gene sets derived from population studies. `batch` and `bio` are factors labeling batch and time point respectively. Consider the joint distribution of these factors:
 
 ```{r batchbio, eval=TRUE}
 
@@ -117,11 +116,11 @@ legend("bottomleft", legend=levels(batch), fill=cc, cex=0.8)
 
 ```
 
-This PC appears to correlate with batch (particularly Y04), but it also highlights 5 outlier libaries that are significantly different from the rest. While we won't discuss the application of these PCs to filtering in this workshop, we will show how they can be applied to normalization.
+This PC appears to correlate with batch (particularly Y04), but it also highlights 5 outlier libraries that are significantly different from the rest. While we won't discuss the application of these PCs to filtering in this workshop, we will show how they can be applied to normalization.
 
 ## Drop-out Characteristics
 
-Next we consider a uniquely single-cell problem: drop-outs. `hk` contains a list of genes that are believed to be ubiquitously and uniformily expressed across the target tissue. Because we assume these genes are expressed in all cells, we can label all zeroes as drop-out events. Below we model detection failures as a logistic function of mean expression, in line with the standard logistic model for drop-outs employed by the field.
+Next we consider a uniquely single-cell problem: drop-outs. `hk` contains a list of genes that are believed to be ubiquitously and uniformly expressed across the target tissue. Because we assume these genes are expressed in all cells, we can label all zeroes as drop-out events. Below we model detection failures as a logistic function of mean expression, in line with the standard logistic model for drop-outs employed by the field.
 
 ```{r fnr_fit, eval=TRUE}
 
@@ -180,11 +179,11 @@ The SCONE's normalization workflow template is composed of 3 modules:
 
 # Step 1: Sample Filtering with `metric_sample_filter`
 
-The most basic sample filtering function in `scone` is the `metric_sample_filter`. It takes as input an expression matrix. The ouput depends on arguments provided, but generally consists of a list of 4 logicals designating each sample as having failed (TRUE) or passed (FALSE) a threshold-based filter on 4 metrics
+The most basic sample filtering function in `scone` is the `metric_sample_filter`. It takes as input an expression matrix. The output depends on arguments provided, but generally consists of a list of 4 logicals designating each sample as having failed (TRUE) or passed (FALSE) a threshold-based filter on 4 metrics
 
 * Number of reads.
 * Ratio of reads aligned to the genome. Requires the `ralign` argument.
-* "Transcriptome breadth" - Defined here as the proportion of hiqh-quality genes detected in the sample. Requires the `gene_filter` argument.
+* "Transcriptome breadth" - Defined here as the proportion of high-quality genes detected in the sample. Requires the `gene_filter` argument.
 * FNR AUC. Requires the `pos_controls` argument.
 
 If required arguments are missing for any of the 4, the function will simply return NA instead of the corresponding logical.
@@ -236,7 +235,7 @@ legend("topleft",legend = c("Hard","SD","MAD","Sufficient","Final"),lwd = 2, col
 
 ```
 
-We see here that the 3rd threshold exceeds the sufficient threshold, and so `metric_sample_filter` settles for the sufficient threshold. Note that if `mixture=TRUE` an additional criterion is included: bimodal metric distributions are fit with to a two component mixture model, and a threshold is defined with respect to the mean and standard deviation of the "better" component. As `metric_sample_filter` relies on a maximum of candidate thresholds, we recommend users treat this function as a liberal filter.
+We see here that the 3rd threshold exceeds the sufficient threshold, and so `metric_sample_filter` settles for the sufficient threshold. Note that if `mixture=TRUE` an additional criterion is included: bi-modal metric distributions are fit with to a two component mixture model, and a threshold is defined with respect to the mean and standard deviation of the "better" component. As `metric_sample_filter` relies on a maximum of candidate thresholds, we recommend users treat this function as a liberal filter.
 
 ## Applying the sample filter
 
@@ -272,7 +271,7 @@ fde = de[de %in% rownames(fcounts)]
 
 # Step 2: Run and Score Normalization Workflows with `scone`
 
-As described earlier, not only does `scone` normalize expression data, but it also provides a framework for evaluationg the performance of various normalization workflows. In order to run the `scone` function, we will need to decide which workflows we will want to compare. 
+As described earlier, not only does `scone` normalize expression data, but it also provides a framework for evaluation the performance of various normalization workflows. In order to run the `scone` function, we will need to decide which workflows we will want to compare. 
 
 ## Selecting Workflow Parameters with `run=FALSE`
 
@@ -296,7 +295,7 @@ In the call above, we have set the following parameters:
 * ruv_negcon = fhk. A list of genes to be used as negative controls for RUVg normalization.
 * k_ruv = 3. The maximum number of RUVg factors to consider.
 * k_qc = 3. The maximum number of quality PCs (QPCs) to be included in a linear model, analogous to RUVg normalization. The qc argument must be provided.
-* adjust_bio = "yes." Timepoints will be included in RUVg or QPC normalization and restored to the residual of the regression. The bio argument must be provided.
+* adjust_bio = "yes." Time points will be included in RUVg or QPC normalization and restored to the residual of the regression. The bio argument must be provided.
 * adjust_batch = "yes." Batch will be included in RUVg or QPC normalization. The batch argument must be provided.
 
 These arguments translate to the following set of options:
@@ -307,7 +306,7 @@ apply(params,2,unique)
 
 ```
 
-While adjusting for biology prior to downstream analsyis is generally problematic, it can be particularly dangerous in the single-cell context: there is significantly more sample-intrinsic biological variability in scRNA-Seq data, variability that cannot be captured by exposure. In our nested design scenario we would only consider adjustments for biology when batch effects are included. We can produce an updated `params` data frame reflecting this choice:
+While adjusting for biology prior to downstream analysis is generally problematic, it can be particularly dangerous in the single-cell context: there is significantly more sample-intrinsic biological variability in scRNA-Seq data, variability that cannot be captured by exposure. In our nested design scenario we would only consider adjustments for biology when batch effects are included. We can produce an updated `params` data frame reflecting this choice:
 
 ```{r scone_params_filt}
 
@@ -319,16 +318,16 @@ params = params[!is_screened,]
 
 ## Calling `scone` with `run=TRUE`
 
-Now that we have selected our workflows, we can run `scone` in `run=TRUE` mode. This mode offers a few additional arguments, including an optional `params` argument to pass any results from the `run=FALSE` mode. In order to understand these arguments, we must first understand the 8 metrics used to evaluate each normalization. The first 6 scores rely on a reduction of the normalized data down to 3 dimensions via PCA (default).
+Now that we have selected our workflows, we can run `scone` in `run=TRUE` mode. This mode offers a few additional arguments, including an optional `params` argument to pass any results from the `run=FALSE` mode. In order to understand these arguments, we must first understand the 8 metrics used to evaluate each normalization. The first 6 metrics rely on a reduction of the normalized data down to 3 dimensions via PCA (default). Each metric is taken to have a positive (higher is better) or negative (lower is better) signature.
 
-* BIO_SIL. The average silhouette width of clusters defined by `bio`, defined with respect to a Euclidean distance metric over the first 3 expression PCs.
-* BATCH_SIL. The average silhouette width of clusters defined by `batch`, defined with respect to a Euclidean distance metric over the first 3 expression PCs.
-* PAM_SIL. The maximum average silhouette width of clusters defined by PAM clustering, defined with respect to a Euclidean distance metric over the first 3 expression PCs.
-* EXP_QC_COR. Maximum squared spearman correlation between first 3 expression PCs and first `k_qc` QPCs.
-* EXP_UV_COR. Maximum squared spearman correlation between first 3 expression PCs and first 3 PCs of the negative control (specified by `eval_negcon` or `ruv_negcon` by default) submatrix of the original (raw) data.
-* EXP_WV_COR. Maximum squared spearman correlation between first 3 expression PCs and first 3 PCs of the positive control (specified by `eval_poscon`) submatrix of the original (raw) data.
-* RLE_MED. The mean squared median Relative Log Expression (RLE).
-* RLE_IQR. The mean inter-quartile range (IQR) of the RLE.
+* BIO_SIL. The average silhouette width of clusters defined by `bio`, defined with respect to a Euclidean distance metric over the first 3 expression PCs. Positive signature.
+* BATCH_SIL. The average silhouette width of clusters defined by `batch`, defined with respect to a Euclidean distance metric over the first 3 expression PCs. Negative signature.
+* PAM_SIL. The maximum average silhouette width of clusters defined by PAM clustering, defined with respect to a Euclidean distance metric over the first 3 expression PCs. Positive signature.
+* EXP_QC_COR. Maximum squared Spearman correlation between first 3 expression PCs and first `k_qc` QPCs. Negative signature.
+* EXP_UV_COR. Maximum squared Spearman correlation between first 3 expression PCs and first 3 PCs of the negative control (specified by `eval_negcon` or `ruv_negcon` by default) sub-matrix of the original (raw) data. Negative signature.
+* EXP_WV_COR. Maximum squared Spearman correlation between first 3 expression PCs and first 3 PCs of the positive control (specified by `eval_poscon`) sub-matrix of the original (raw) data. Positive signature.
+* RLE_MED. The mean squared median Relative Log Expression (RLE). Negative signature.
+* RLE_IQR. The mean inter-quartile range (IQR) of the RLE. Negative signature.
 
 ```{r scone_run}
 
@@ -345,10 +344,22 @@ res <- scone(expr = as.matrix(fcounts),scaling = c(none = identity, deseq = DESE
 In the call above, we have set the following parameters:
 
 * eval_poscon = fde. A list of genes to be used as positive controls for evaluation.
-* eval_kclust = 2:3. Range of k (# of clusters) to use when computing maximum average silhouette width of PAM clusterings.
-* conditional_pam = TRUE. Apply PAM clustering within timepoints rather than across all timepoints.
+* eval_kclust = 2:3. For PAM_SIL, range of k (# of clusters) to use when computing maximum average silhouette width of PAM clusterings.
+* conditional_pam = TRUE. For PAM_SIL, apply separate PAM clusterings to each time point rather than across all time points. Average is weighted by time point group size.
 
-```{r scone_view}
+Running the command will take a couple minutes. The output will contain a list of four elements:
+
+```{r scone_view1}
+
+names(res)
+
+```
+
+`normalized_data` contains a list of normalized expression data (log-scale); each expression matrix is named according to the same convention as seen in the `params` argument.
+
+`metrics` contains the 8 raw metrics for each normalization. `scores` contains metrics multiplied by their signature - or "scores" - as well as a 9th column that contains the mean score for that normalization. Normalization workflows in `normalized_data`,`metrics`, and `scores` are sorted in decreasing order by mean score. 
+
+```{r scone_view2}
 
 head(res$scores)
 
@@ -356,9 +367,41 @@ head(res$scores)
 
 # Step 3: Selecting a normalization for downstream analysis
 
+Based on our sorting criteria, it would appear that `none,fq,ruv_k=1,no_bio,no_batch` performs well compared to other normalization workflows. A useful way to visualize this method with respect to others is the `biplot_colored` function
+
 ```{r biplot_colored}
 
 pc_obj = prcomp(res$scores[,-ncol(res$scores)],center = TRUE,scale = FALSE)
+bp_obj = biplot_colored(pc_obj,y = -res$scores[,ncol(res$scores)],expand = .6)
+
+```
+
+We have colored each point above according the corresponding method's mean score. We can see that workflows cluster largely by three scores: BIO_SIL, EXP_WV_COR, and EXP_UV_COR. Since clustering by biology is playing a strong role, we can highlight the points corresponding the biology adjustment:
+
+```{r biplot_colored2}
+
+bp_obj = biplot_colored(pc_obj,y = -res$scores[,ncol(res$scores)],expand = .6)
+
+points(bp_obj[grepl(",bio,batch",rownames(bp_obj)),], pch = 1, col = "red", cex = 1)
+points(bp_obj[grepl(",bio,batch",rownames(bp_obj)),], pch = 1, col = "red", cex = 1.5)
+
+```
+
+We see that the intermediate-performance cluster to the bottom-left is made up only of these methods. This example highlights the danger of adjusting for biology, even in the nested design scenario. Although biology-adjusted data may reflect prior differences more strongly, other metrics would suggest that the data is poorly behaved. We can also consider cases where only batch is accounted for:
+
+```{r biplot_colored3}
+
+bp_obj = biplot_colored(pc_obj,y = -res$scores[,ncol(res$scores)],expand = .6)
+
+points(bp_obj[grepl(",no_bio,batch",rownames(bp_obj)),], pch = 1, col = "red", cex = 1)
+points(bp_obj[grepl(",no_bio,batch",rownames(bp_obj)),], pch = 1, col = "red", cex = 1.5)
+
+```
+
+Here we see that the poorly performing cluster on the right is made up solely of these methods. This follows from the simple fact that batch is nested within biology, and adjustments for the former can remove critical biological variation. Finally we will visualize the top-performing method and it's relation to un-normalized data: 
+
+```{r biplot_colored4}
+
 bp_obj = biplot_colored(pc_obj,y = -res$scores[,ncol(res$scores)],expand = .6)
 
 points(t(bp_obj[1,]), pch = 1, col = "red", cex = 1)
@@ -375,17 +418,7 @@ arrows(bp_obj[rownames(bp_obj) == rownames(params)[1],][1],
 
 ```
 
-```{r pca}
-
-pc_obj = prcomp(t(res$normalized_data[[rownames(params)[1]]]),center = TRUE,scale = FALSE)
-plot(pc_obj$x[,1:2], col = as.numeric(as.factor(fbio)),pch = 16, main = rownames(params)[1])
-legend("bottomleft",legend = levels(as.factor(fbio)),pch =16, col = 1:nlevels(as.factor(fbio)))
-
-pc_obj = prcomp(t(res$normalized_data[[1]]),center = TRUE,scale = FALSE)
-plot(pc_obj$x[,1:2], col = as.numeric(as.factor(fbio)), pch = 16, main = names(res$normalized_data)[1])
-legend("bottomleft",legend = levels(as.factor(fbio)),pch =16, col = 1:nlevels(as.factor(fbio)))
-
-```
+The arrow traces a line from the "no-op" normalization to the top-ranked normalization in SCONE. We see that SCONE has selected a method in-between the two extremes, reducing the signal of unwanted variation (as defined by `fhk`) while preserving biological signal (as defined by `fbio` and `fde`).
 
 # Session Info
 
