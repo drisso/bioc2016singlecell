@@ -20,7 +20,9 @@ Suggests:
   MAST,
   BiocStyle,
   knitr,
-  rmarkdown
+  rmarkdown,
+  RColorBrewer,
+  gam
 Remotes:
   epurdom/clusterExperiment@release/0.99.1-9003,
   YosefLab/scone,
