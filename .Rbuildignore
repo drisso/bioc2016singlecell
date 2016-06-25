@@ -27,3 +27,4 @@ NEWS[.]md
 ^.*\.Rproj$
 ^\.Rproj\.user$
 ^\.\./inst/NEWS$
+docs
