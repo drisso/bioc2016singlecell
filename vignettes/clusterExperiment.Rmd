@@ -385,7 +385,8 @@ norm <- transform(rs)
 norm[norm<0] <- 0
 
 ## create MAST object
-sca <- FromMatrix("SingleCellAssay", t(norm[,-wh_rm]), cData=data.frame(Clusters=primaryClusterNamed(rs)[-wh_rm]))
+sca <- FromMatrix(norm[,-wh_rm],
+                  cData=data.frame(Clusters=primaryClusterNamed(rs)[-wh_rm]))
 
 ## model fit
 fit <- zlm(~0+Clusters, sca)
