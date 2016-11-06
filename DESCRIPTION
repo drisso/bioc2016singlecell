@@ -1,6 +1,6 @@
 Package: bioc2016singlecell
 Title: Analysis of Single-Cell RNA-Seq Data with R and Bioconductor
-Version: 0.0.1
+Version: 0.0.2
 Description: Code and data needed for the workshop.
 Authors@R: c(person("Davide", "Risso", email = "risso.davide@gmail.com",
             role = c("aut", "cre", "cph")),
@@ -24,9 +24,7 @@ Suggests:
   rmarkdown,
   RColorBrewer
 Remotes:
-  epurdom/clusterExperiment@release/0.99.1-9003,
   YosefLab/scone,
   kstreet13/slingshot,
-  RGLab/MAST
 VignetteBuilder: knitr
 LazyData: true
