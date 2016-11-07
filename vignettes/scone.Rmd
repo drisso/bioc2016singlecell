@@ -189,7 +189,7 @@ If required arguments are missing for any of the 4, the function will simply ret
 
 ```{r metric_sample_filter, eval=TRUE}
 
-mfilt_report <- metric_sample_filter(expr = counts,
+mfilt_report <- metric_sample_filter(expr = as.matrix(counts),
                                      nreads = qc$NREADS,ralign = qc$RALIGN,
                                      suff_nreads = 10^5,
                                      suff_ralign = 90,
